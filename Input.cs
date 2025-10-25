@@ -61,14 +61,10 @@ namespace TipeUtils
             return sb.ToString();
         }
 
-        public T Read<T>() where T : IConvertible
+        public T Read<T>()
         {
             string token = GetToken();
             Type targetType = typeof(T);
-
-            MethodInfo? parseMethod = targetType.GetMethod("Parse", [typeof(string)]);
-            if (parseMethod != null)
-                return (T)parseMethod.Invoke(null, [token])!;
 
             if (Nullable.GetUnderlyingType(targetType) is Type underlyingType)
             {
@@ -86,6 +82,10 @@ namespace TipeUtils
             TypeConverter converter = TypeDescriptor.GetConverter(targetType);
             if (converter != null && converter.CanConvertFrom(typeof(string)))
                 return (T)converter.ConvertFromString(token)!;
+
+            MethodInfo? parseMethod = targetType.GetMethod("Parse", [typeof(string)]);
+            if (parseMethod != null)
+                return (T)parseMethod.Invoke(null, [token])!;
 
             throw new InvalidOperationException($"Failed to parse token '{token}' as {typeof(T).Name}.");
         }

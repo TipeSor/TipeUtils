@@ -149,7 +149,7 @@ namespace TipeUtils
         {
             StringBuilder sb = new();
             char[,] charmap = new char[4, 4] {
-                { ' '             , _border.Horizontal  , _border.Horizontal   , _border.Horizontal     },
+                { '*'             , _border.Horizontal  , _border.Horizontal   , _border.Horizontal     },
                 { _border.Vertical, _border.TopLeft     , _border.TopRight     , _border.TopJunction    },
                 { _border.Vertical, _border.BottomLeft  , _border.BottomRight  , _border.BottomJunction },
                 { _border.Vertical, _border.LeftJunction, _border.RightJunction, _border.Cross          }
@@ -164,18 +164,17 @@ namespace TipeUtils
                     TryGetColConfig(col, out ColConfig? colConfig);
 
                     // bottom-right
-                    Cell cell1;
-                    TryGet(row - 0, col - 0, out cell1);
+                    TryGet(row, col, out Cell cell1);
 
                     // bottom-left
                     Cell cell2 = new();
                     if (col > 0)
-                        TryGet(row - 0, col - 1, out cell2);
+                        TryGet(row, col - 1, out cell2);
 
                     // top-right
                     Cell cell3 = new();
                     if (row > 0)
-                        TryGet(row - 1, col - 0, out cell3);
+                        TryGet(row - 1, col, out cell3);
 
                     // top-left
                     Cell cell4 = new();
