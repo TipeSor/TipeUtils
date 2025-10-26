@@ -11,9 +11,11 @@ namespace TipeUtils
         private uint _rowCount = rowCount;
         private uint _colCount = colCount;
 
-        private readonly BorderChars _border = border ?? new BorderChars(
-            '─', '│', '┌', '┐', '└', '┘', '┬', '┴', '├', '┤', '┼'
-        );
+        public Table() :
+            this(0, 0)
+        { }
+
+        private readonly BorderChars _border = border ?? BorderStyle.Box;
 
         public RowConfig GetRowConfig(uint row)
         {
@@ -54,21 +56,21 @@ namespace TipeUtils
         public bool TryGetRowConfig(uint row, out RowConfig config)
         {
             bool res = _rowConfigs.TryGetValue(row, out RowConfig? value);
-            config = value ?? new RowConfig();
+            config = value ?? RowConfig.Default;
             return res;
         }
 
         public bool TryGetColConfig(uint col, out ColConfig config)
         {
             bool res = _colConfigs.TryGetValue(col, out ColConfig? value);
-            config = value ?? new ColConfig();
+            config = value ?? ColConfig.Default;
             return res;
         }
 
         public bool TryGet(uint row, uint col, out Cell cell)
         {
             bool res = _cells.TryGetValue((row, col), out Cell? value);
-            cell = value ?? new Cell();
+            cell = value ?? Cell.Empty;
             return res;
         }
 
@@ -261,6 +263,11 @@ namespace TipeUtils
         }
     }
 
+    public record BorderStyle
+    {
+        public static readonly BorderChars Box = new('─', '│', '┌', '┐', '└', '┘', '┬', '┴', '├', '┤', '┼');
+    }
+
     public record BorderChars(
         char Horizontal,
         char Vertical,
@@ -278,11 +285,15 @@ namespace TipeUtils
     public class RowConfig
     {
         public int Height { get; set; } = 1;
+
+        public static readonly RowConfig Default = new();
     }
 
     public class ColConfig
     {
         public int Width { get; set; } = 16;
+
+        public static readonly ColConfig Default = new();
     }
 
     public class CellConfig(
@@ -293,6 +304,8 @@ namespace TipeUtils
         public CellPadding Padding { get; set; } = padding;
         public CellAlignment Alignment { get; set; } = alignment;
         public CellBorder Border { get; set; } = border;
+
+        public static readonly CellConfig Default = new();
     }
 
     public enum CellPadding
@@ -324,6 +337,8 @@ namespace TipeUtils
     {
         public string Value { get; set; } = value;
         public CellConfig Config { get; set; } = config ?? new CellConfig();
+
+        public static readonly Cell Empty = new("", CellConfig.Default);
     }
 
     public enum OutlineMode
@@ -332,4 +347,3 @@ namespace TipeUtils
         Override
     }
 }
-

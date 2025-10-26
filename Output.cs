@@ -1,4 +1,4 @@
-#pragma warning disable IDE0011, IDE0046, IDE0058
+#pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
 namespace TipeUtils
 {
     public class Output : IDisposable
@@ -18,30 +18,21 @@ namespace TipeUtils
             _writer = new StreamWriter(path);
         }
 
-        public Output(TextWriter writer)
+        public Output(TextWriter writer, bool skipDispose = false)
         {
             _writer = writer;
+            _skipDispose = skipDispose;
         }
 
-        public void Write<T>(T obj)
-        {
-            _writer.Write(obj);
-        }
+        public void Write<T>(T obj) => _writer.Write(obj);
+        public void Write(string format, params object[] args) => _writer.Write(format, args);
 
-        public void WriteLine<T>(T obj)
-        {
-            _writer.WriteLine(obj);
-        }
+        public void WriteLine() => _writer.WriteLine();
+        public void WriteLine<T>(T obj) => _writer.WriteLine(obj);
 
-        public void Flush()
-        {
-            _writer.Flush();
-        }
+        public void Flush() => _writer.Flush();
 
-        public void Close()
-        {
-            _writer.Close();
-        }
+        public void Close() => _writer.Close();
 
         public void Dispose()
         {

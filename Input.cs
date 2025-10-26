@@ -23,9 +23,10 @@ namespace TipeUtils
             _reader = new StreamReader(path);
         }
 
-        public Input(TextReader reader)
+        public Input(TextReader reader, bool skipDispose)
         {
             _reader = reader;
+            _skipDispose = skipDispose;
         }
 
         private void NextChar()
@@ -35,7 +36,7 @@ namespace TipeUtils
 
         private bool IsSeparator()
         {
-            return char.IsWhiteSpace((char)_currentChar) || char.IsSeparator((char)_currentChar);
+            return char.IsWhiteSpace((char)_currentChar);
         }
 
         private string GetToken()
