@@ -78,7 +78,7 @@ namespace TipeUtils
                 return (T)Enum.Parse(targetType, token, ignoreCase: true);
 
             if (typeof(IConvertible).IsAssignableFrom(targetType))
-                return (T)Convert.ChangeType(token, targetType, CultureInfo.CurrentCulture);
+                return (T)Convert.ChangeType(token, targetType, CultureInfo.InvariantCulture);
 
             TypeConverter converter = TypeDescriptor.GetConverter(targetType);
             if (converter != null && converter.CanConvertFrom(typeof(string)))

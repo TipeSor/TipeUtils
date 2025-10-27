@@ -200,9 +200,9 @@ namespace TipeUtils
                     bool bottom = border1.HasFlag(CellBorder.Left) ||
                                   border2.HasFlag(CellBorder.Right);
 
-                    int x = (left ? 2 : 0) + (right ? 1 : 0);
+                    int x = (right ? 1 : 0) | (left ? 2 : 0);
 
-                    int y = (top ? 2 : 0) + (bottom ? 1 : 0);
+                    int y = (bottom ? 1 : 0) | (top ? 2 : 0);
 
                     sb.Append(charmap[y, x]);
                     if (col < _colCount) sb.Append(new string(charmap[0, right ? 1 : 0], colConfig.Width));

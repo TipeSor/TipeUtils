@@ -13,9 +13,12 @@ namespace TipeUtils
             _skipDispose = true;
         }
 
-        public Output(string path)
+        public Output(string path, bool append = false, bool autoFlush = true)
         {
-            _writer = new StreamWriter(path);
+            _writer = new StreamWriter(path, append)
+            {
+                AutoFlush = autoFlush
+            };
         }
 
         public Output(TextWriter writer, bool skipDispose = false)
