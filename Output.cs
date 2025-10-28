@@ -3,19 +3,22 @@ namespace TipeUtils
 {
     public class Output : IDisposable
     {
-        private readonly TextWriter _writer;
+        public TextWriter Stream { get; }
         private readonly bool _skipDispose;
         private bool _disposed;
 
         public Output()
         {
-            _writer = Console.Out;
+            Stream = new StreamWriter(Console.OpenStandardOutput(), leaveOpen: true)
+            {
+                AutoFlush = true,
+            };
             _skipDispose = true;
         }
 
         public Output(string path, bool append = false, bool autoFlush = true)
         {
-            _writer = new StreamWriter(path, append)
+            Stream = new StreamWriter(path, append)
             {
                 AutoFlush = autoFlush
             };
@@ -23,19 +26,18 @@ namespace TipeUtils
 
         public Output(TextWriter writer, bool skipDispose = false)
         {
-            _writer = writer;
+            Stream = writer;
             _skipDispose = skipDispose;
         }
 
-        public void Write<T>(T obj) => _writer.Write(obj);
-        public void Write(string format, params object[] args) => _writer.Write(format, args);
+        public void Write<T>(T obj) => Stream.Write(obj);
+        public void Write(string format, params object?[] args) => Stream.Write(format, args);
 
-        public void WriteLine() => _writer.WriteLine();
-        public void WriteLine<T>(T obj) => _writer.WriteLine(obj);
+        public void WriteLine() => Stream.WriteLine();
+        public void WriteLine<T>(T obj) => Stream.WriteLine(obj);
 
-        public void Flush() => _writer.Flush();
-
-        public void Close() => _writer.Close();
+        public void Flush() => Stream.Flush();
+        public void Close() => Stream.Close();
 
         public void Dispose()
         {
@@ -50,7 +52,7 @@ namespace TipeUtils
 
             if (disposing && !_skipDispose)
             {
-                _writer?.Dispose();
+                Stream?.Dispose();
             }
 
             _disposed = true;

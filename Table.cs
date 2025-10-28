@@ -1,5 +1,5 @@
-using System.Text;
-#pragma warning disable IDE0011, IDE0046, IDE0058
+#pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
+
 namespace TipeUtils
 {
     public class Table(uint rowCount, uint colCount, BorderChars? border = null)
@@ -15,7 +15,9 @@ namespace TipeUtils
             this(0, 0)
         { }
 
-        private readonly BorderChars _border = border ?? BorderStyle.Box;
+        private BorderChars _border = border ?? BorderStyle.Box;
+
+        public void SetBorder(BorderChars border) => _border = border;
 
         public RowConfig GetRowConfig(uint row)
         {
@@ -76,6 +78,9 @@ namespace TipeUtils
 
         public void OutlineRegion(uint startRow, uint startCol, uint endRow, uint endCol, OutlineMode mode = OutlineMode.Override)
         {
+            if (endRow < startRow || endCol < startCol)
+                throw new ArgumentException("Invalid region bounds");
+
             for (uint row = startRow; row <= endRow; row++)
             {
                 for (uint col = startCol; col <= endCol; col++)
@@ -103,53 +108,26 @@ namespace TipeUtils
 
         public void OutlineRow(uint row, OutlineMode mode = OutlineMode.Override)
         {
-            for (uint col = 0; col < _colCount; col++)
-            {
-                CellBorder border = CellBorder.Top | CellBorder.Bottom;
-                if (col == 0) border |= CellBorder.Left;
-                if (col == _colCount - 1) border |= CellBorder.Right;
-
-                switch (mode)
-                {
-                    case OutlineMode.Overlap:
-                        this[row, col].Config.Border |= border;
-                        break;
-                    case OutlineMode.Override:
-                        this[row, col].Config.Border = border;
-                        break;
-                    default:
-                        break;
-                }
-            }
+            OutlineRegion(row, 0, row, _colCount - 1, mode);
         }
 
         public void OutlineCol(uint col, OutlineMode mode = OutlineMode.Override)
         {
-            for (uint row = 0; row < _rowCount; row++)
-            {
-                CellBorder border = CellBorder.Left | CellBorder.Right;
-                if (row == 0) border |= CellBorder.Top;
-                if (row == _rowCount - 1) border |= CellBorder.Bottom;
-
-                switch (mode)
-                {
-                    case OutlineMode.Overlap:
-                        this[row, col].Config.Border |= border;
-                        break;
-                    case OutlineMode.Override:
-                        this[row, col].Config.Border = border;
-                        break;
-                    default:
-                        break;
-                }
-            }
+            OutlineRegion(0, col, _rowCount - 1, col, mode);
         }
 
         public Cell this[uint row, uint col] => Get(row, col);
 
-        public override string ToString()
+        public void Render(TextWriter writer)
         {
-            StringBuilder sb = new();
+            ColConfig[] colConfigs = new ColConfig[_colCount + 1];
+            for (uint c = 0; c <= _colCount; c++)
+                TryGetColConfig(c, out colConfigs[c]);
+
+            RowConfig[] rowConfigs = new RowConfig[_rowCount + 1];
+            for (uint r = 0; r <= _rowCount; r++)
+                TryGetRowConfig(r, out rowConfigs[r]);
+
             char[,] charmap = new char[4, 4] {
                 { '*'             , _border.Horizontal  , _border.Horizontal   , _border.Horizontal     },
                 { _border.Vertical, _border.TopLeft     , _border.TopRight     , _border.TopJunction    },
@@ -160,10 +138,10 @@ namespace TipeUtils
             for (uint row = 0; row <= _rowCount; row++)
             {
                 // Row separators
-                TryGetRowConfig(row, out RowConfig rowConfig);
+                RowConfig rowConfig = rowConfigs[row];
                 for (uint col = 0; col <= _colCount; col++)
                 {
-                    TryGetColConfig(col, out ColConfig? colConfig);
+                    ColConfig colConfig = colConfigs[col];
 
                     // bottom-right
                     TryGet(row, col, out Cell cell1);
@@ -188,24 +166,29 @@ namespace TipeUtils
                     CellBorder border3 = cell3.Config.Border;
                     CellBorder border4 = cell4.Config.Border;
 
-                    bool left = border2.HasFlag(CellBorder.Top) ||
+                    bool leftFlag = border2.HasFlag(CellBorder.Top) ||
                                 border4.HasFlag(CellBorder.Bottom);
 
-                    bool right = border1.HasFlag(CellBorder.Top) ||
+                    bool rightFlag = border1.HasFlag(CellBorder.Top) ||
                                  border3.HasFlag(CellBorder.Bottom);
 
-                    bool top = border3.HasFlag(CellBorder.Left) ||
+                    bool topFlag = border3.HasFlag(CellBorder.Left) ||
                                border4.HasFlag(CellBorder.Right);
 
-                    bool bottom = border1.HasFlag(CellBorder.Left) ||
+                    bool bottomFlag = border1.HasFlag(CellBorder.Left) ||
                                   border2.HasFlag(CellBorder.Right);
 
-                    int x = (right ? 1 : 0) | (left ? 2 : 0);
+                    int right = rightFlag ? 1 << 0 : 0;
+                    int left = leftFlag ? 1 << 1 : 0;
+                    int bottom = bottomFlag ? 1 << 0 : 0;
+                    int top = topFlag ? 1 << 1 : 0;
 
-                    int y = (bottom ? 1 : 0) | (top ? 2 : 0);
+                    int horizontal = right | left;
 
-                    sb.Append(charmap[y, x]);
-                    if (col < _colCount) sb.Append(new string(charmap[0, right ? 1 : 0], colConfig.Width));
+                    int vertical = bottom | top;
+
+                    writer.Write(charmap[vertical, horizontal]);
+                    if (col < _colCount) writer.Write(new string(charmap[0, right], colConfig.Width));
 
 
                 }
@@ -214,7 +197,7 @@ namespace TipeUtils
                     // Cell Logic
                     for (int h = 0; h < rowConfig.Height; h++)
                     {
-                        sb.AppendLine();
+                        writer.WriteLine();
                         for (uint col = 0; col <= _colCount; col++)
                         {
                             TryGetColConfig(col, out ColConfig? colConfig);
@@ -228,14 +211,14 @@ namespace TipeUtils
                             bool bottom = border1.HasFlag(CellBorder.Left) || border2.HasFlag(CellBorder.Right);
 
                             int y = bottom ? 1 : 0;
-                            sb.Append(charmap[y, 0]);
+                            writer.Write(charmap[y, 0]);
 
                             string value = cell1.Value;
                             value = cell1.Config.Padding switch
                             {
-                                CellPadding.Left => Formatting.LeftPad(value, colConfig.Width),
+                                CellPadding.Left => Formatting.RightPad(value, colConfig.Width),
                                 CellPadding.Center => Formatting.CenterPad(value, colConfig.Width),
-                                CellPadding.Right => Formatting.RightPad(value, colConfig.Width),
+                                CellPadding.Right => Formatting.LeftPad(value, colConfig.Width),
                                 _ => Formatting.LeftPad(value, colConfig.Width),
                             };
 
@@ -249,23 +232,24 @@ namespace TipeUtils
 
                             if (col < _colCount)
                             {
-                                if (h == position) sb.Append(value);
-                                else sb.Append(new string(' ', colConfig.Width));
+                                if (h == position) writer.Write(value);
+                                else writer.Write(new string(' ', colConfig.Width));
                             }
                         }
                     }
-
-                    // new line
-                    sb.AppendLine();
                 }
+
+                // new line
+                writer.WriteLine();
             }
-            return sb.ToString();
         }
     }
 
     public record BorderStyle
     {
+        public static readonly BorderChars Ascii = new('-', '|', '+', '+', '+', '+', '+', '+', '+', '+', '+');
         public static readonly BorderChars Box = new('─', '│', '┌', '┐', '└', '┘', '┬', '┴', '├', '┤', '┼');
+        public static readonly BorderChars DoubleBox = new('═', '║', '╔', '╗', '╚', '╝', '╦', '╩', '╠', '╣', '╬');
     }
 
     public record BorderChars(

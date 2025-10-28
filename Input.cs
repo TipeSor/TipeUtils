@@ -7,31 +7,31 @@ namespace TipeUtils
 {
     public class Input : IDisposable
     {
-        private readonly TextReader _reader;
+        public TextReader Stream { get; }
         private readonly bool _skipDispose;
         private int _currentChar;
         private bool _disposed;
 
         public Input()
         {
-            _reader = Console.In;
+            Stream = new StreamReader(Console.OpenStandardInput(), leaveOpen: true);
             _skipDispose = true;
         }
 
         public Input(string path)
         {
-            _reader = new StreamReader(path);
+            Stream = new StreamReader(path);
         }
 
         public Input(TextReader reader, bool skipDispose)
         {
-            _reader = reader;
+            Stream = reader;
             _skipDispose = skipDispose;
         }
 
         private void NextChar()
         {
-            _currentChar = _reader.Read();
+            _currentChar = Stream.Read();
         }
 
         private bool IsSeparator()
@@ -93,7 +93,7 @@ namespace TipeUtils
 
         public void Close()
         {
-            _reader.Close();
+            Stream.Close();
         }
 
         public void Dispose()
@@ -109,7 +109,7 @@ namespace TipeUtils
 
             if (disposing && !_skipDispose)
             {
-                _reader?.Dispose();
+                Stream?.Dispose();
             }
 
             _disposed = true;

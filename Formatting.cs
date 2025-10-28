@@ -7,7 +7,7 @@ namespace TipeUtils
             text ??= string.Empty;
             return text.Length >= length
                 ? text[..length]
-                : new string(fill, length - text.Length) + text;
+                : text + new string(fill, length - text.Length);
         }
 
         public static string RightPad(string? text, int length, char fill = ' ')
@@ -15,7 +15,7 @@ namespace TipeUtils
             text ??= string.Empty;
             return text.Length >= length
                 ? text[..length]
-                : text + new string(fill, length - text.Length);
+                : new string(fill, length - text.Length) + text;
         }
 
         public static string CenterPad(string? text, int length, char fill = ' ')
