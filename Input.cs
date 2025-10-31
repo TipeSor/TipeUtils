@@ -1,20 +1,18 @@
-using System.ComponentModel;
-using System.Globalization;
-using System.Reflection;
-using System.Text;
 #pragma warning disable IDE0011, IDE0046, IDE0058
+using System.Diagnostics.CodeAnalysis;
+
 namespace TipeUtils
 {
     public class Input : IDisposable
     {
         public TextReader Stream { get; }
+        private readonly Queue<string> _tokens = new();
         private readonly bool _skipDispose;
-        private int _currentChar;
         private bool _disposed;
 
         public Input()
         {
-            Stream = new StreamReader(Console.OpenStandardInput(), leaveOpen: true);
+            Stream = Console.In;
             _skipDispose = true;
         }
 
@@ -23,72 +21,74 @@ namespace TipeUtils
             Stream = new StreamReader(path);
         }
 
-        public Input(TextReader reader, bool skipDispose)
+        public Input(TextReader reader, bool skipDispose = false)
         {
             Stream = reader;
             _skipDispose = skipDispose;
         }
 
-        private void NextChar()
+        public string ReadLine()
         {
-            _currentChar = Stream.Read();
+            return Stream.ReadLine() ?? string.Empty;
         }
 
-        private bool IsSeparator()
+        private bool PopulateTokens()
         {
-            return char.IsWhiteSpace((char)_currentChar);
+            string input = ReadLine();
+            if (!Tokenizer.TryTokenize(input, out IEnumerable<string>? tokens))
+                return false;
+
+            foreach (string token in tokens!)
+                _tokens.Enqueue(token);
+
+            return true;
         }
 
-        private string GetToken()
+        public string[] GetCurrentTokens()
         {
-            StringBuilder sb = new();
-
-            while (true)
-            {
-                NextChar();
-                if (_currentChar == -1 || !IsSeparator())
-                    break;
-            }
-
-            while (_currentChar != -1 && !IsSeparator())
-            {
-                sb.Append((char)_currentChar);
-                NextChar();
-            }
-
-            if (sb.Length == 0 && _currentChar == -1)
-                throw new EndOfStreamException("Unexpected end of input.");
-
-            return sb.ToString();
+            string[] tokens = [.. _tokens];
+            _tokens.Clear();
+            return tokens;
         }
 
-        public T Read<T>()
+        public string GetToken()
+        {
+            if (_tokens.Count == 0 && !PopulateTokens())
+                throw new EndOfStreamException();
+            return _tokens.Dequeue();
+        }
+
+        public string PeekToken()
+        {
+            if (_tokens.Count == 0 && !PopulateTokens())
+                throw new EndOfStreamException();
+
+            return _tokens.Peek();
+        }
+
+        public object? Read(Type type)
         {
             string token = GetToken();
-            Type targetType = typeof(T);
+            object? value = Parser.FromString(token, type);
+            return value;
+        }
 
-            if (Nullable.GetUnderlyingType(targetType) is Type underlyingType)
-            {
-                targetType = underlyingType;
-                if (string.IsNullOrWhiteSpace(token))
-                    return default!;
-            }
+        public bool TryRead(Type type, [NotNullWhen(true)] out object? value)
+        {
+            value = Read(type);
+            return value is not null;
+        }
 
-            if (targetType.IsEnum)
-                return (T)Enum.Parse(targetType, token, ignoreCase: true);
+        public T? Read<T>()
+        {
+            return (T?)Read(typeof(T));
+        }
 
-            if (typeof(IConvertible).IsAssignableFrom(targetType))
-                return (T)Convert.ChangeType(token, targetType, CultureInfo.InvariantCulture);
-
-            TypeConverter converter = TypeDescriptor.GetConverter(targetType);
-            if (converter != null && converter.CanConvertFrom(typeof(string)))
-                return (T)converter.ConvertFromString(token)!;
-
-            MethodInfo? parseMethod = targetType.GetMethod("Parse", [typeof(string)]);
-            if (parseMethod != null)
-                return (T)parseMethod.Invoke(null, [token])!;
-
-            throw new InvalidOperationException($"Failed to parse token '{token}' as {typeof(T).Name}.");
+        public bool TryRead<T>([NotNullWhen(true)] out T? value)
+        {
+            bool res = TryRead(typeof(T), out object? raw);
+            value = res ? (T)raw! : default;
+            return res;
         }
 
         public void Close()

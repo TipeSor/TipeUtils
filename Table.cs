@@ -202,8 +202,13 @@ namespace TipeUtils
                         {
                             TryGetColConfig(col, out ColConfig? colConfig);
 
-                            TryGet(row - 0, col - 0, out Cell cell1); // bottom-right
-                            TryGet(row - 0, col - 1, out Cell cell2); // bottom-left
+                            // bottom-right
+                            TryGet(row, col, out Cell cell1);
+
+                            // bottom-left
+                            Cell cell2 = new();
+                            if (col > 0)
+                                TryGet(row, col - 1, out cell2);
 
                             CellBorder border1 = cell1.Config.Border;
                             CellBorder border2 = cell2.Config.Border;
