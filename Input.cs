@@ -6,9 +6,10 @@ namespace TipeUtils
     public class Input : IDisposable
     {
         public TextReader Stream { get; }
-        private readonly Queue<string> _tokens = new();
         private readonly bool _skipDispose;
         private bool _disposed;
+
+        private LazyQueue<string> Tokens { get; set; } = [];
 
         public Input()
         {
@@ -35,60 +36,41 @@ namespace TipeUtils
         private bool PopulateTokens()
         {
             string input = ReadLine();
-            if (!Tokenizer.TryTokenize(input, out IEnumerable<string>? tokens))
+            if (string.IsNullOrWhiteSpace(input))
                 return false;
-
-            foreach (string token in tokens!)
-                _tokens.Enqueue(token);
-
+            Tokens.Add(Formatting.Split(input));
             return true;
         }
 
-        public string[] GetCurrentTokens()
+        public string[] GetTokens()
         {
-            string[] tokens = [.. _tokens];
-            _tokens.Clear();
-            return tokens;
+            return [.. Tokens];
         }
 
-        public string GetToken()
+        public string? GetToken()
         {
-            if (_tokens.Count == 0 && !PopulateTokens())
-                throw new EndOfStreamException();
-            return _tokens.Dequeue();
-        }
+            string? token;
+            while ((token = Tokens.GetToken()) is null)
+            {
+                if (!PopulateTokens())
+                    return null;
+            }
 
-        public string PeekToken()
-        {
-            if (_tokens.Count == 0 && !PopulateTokens())
-                throw new EndOfStreamException();
-
-            return _tokens.Peek();
-        }
-
-        public object? Read(Type type)
-        {
-            string token = GetToken();
-            object? value = Parser.FromString(token, type);
-            return value;
-        }
-
-        public bool TryRead(Type type, [NotNullWhen(true)] out object? value)
-        {
-            value = Read(type);
-            return value is not null;
+            return token;
         }
 
         public T? Read<T>()
         {
-            return (T?)Read(typeof(T));
+            string? token = GetToken();
+            if (token == null)
+                return default;
+            return Parser.FromString<T>(token);
         }
 
         public bool TryRead<T>([NotNullWhen(true)] out T? value)
         {
-            bool res = TryRead(typeof(T), out object? raw);
-            value = res ? (T)raw! : default;
-            return res;
+            value = Read<T>();
+            return value is not null;
         }
 
         public void Close()
