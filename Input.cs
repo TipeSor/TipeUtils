@@ -1,6 +1,5 @@
-#pragma warning disable IDE0011, IDE0046, IDE0058
 using System.Diagnostics.CodeAnalysis;
-
+#pragma warning disable IDE0011, IDE0046, IDE0058
 namespace TipeUtils
 {
     public class Input : IDisposable
@@ -38,7 +37,7 @@ namespace TipeUtils
             string input = ReadLine();
             if (string.IsNullOrWhiteSpace(input))
                 return false;
-            Tokens.Add(Formatting.Split(input));
+            Tokens.Enqueue(Formatting.Split(input));
             return true;
         }
 
@@ -50,7 +49,7 @@ namespace TipeUtils
         public string? GetToken()
         {
             string? token;
-            while ((token = Tokens.GetToken()) is null)
+            while ((token = Tokens.Dequeue()) is null)
             {
                 if (!PopulateTokens())
                     return null;

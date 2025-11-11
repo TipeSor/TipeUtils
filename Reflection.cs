@@ -1,6 +1,5 @@
-#pragma warning disable IDE0011, IDE0046, IDE0058
 using System.Reflection;
-
+#pragma warning disable IDE0011, IDE0046, IDE0058
 namespace TipeUtils
 {
     public static class Reflection

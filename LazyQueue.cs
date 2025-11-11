@@ -1,7 +1,5 @@
-#pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
-
 using System.Collections;
-
+#pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
 namespace TipeUtils
 {
     public class LazyQueue<T> : IEnumerable<T>
@@ -16,12 +14,17 @@ namespace TipeUtils
             _sources.Enqueue(source);
         }
 
-        public void Add(IEnumerable<T> source)
+        public void Enqueue(IEnumerable<T> source)
         {
             _sources.Enqueue(source);
         }
 
-        public T? GetToken()
+        public void Enqueue(T item)
+        {
+            _sources.Enqueue([item]);
+        }
+
+        public T? Dequeue()
         {
             while (true)
             {
@@ -42,9 +45,9 @@ namespace TipeUtils
 
         public IEnumerator<T> GetEnumerator()
         {
-            T? token;
-            while ((token = GetToken()) is not null)
-                yield return token;
+            T? item;
+            while ((item = Dequeue()) is not null)
+                yield return item;
         }
 
         IEnumerator IEnumerable.GetEnumerator()
