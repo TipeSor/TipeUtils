@@ -4,36 +4,81 @@ namespace TipeUtils
 {
     public static class Reflection
     {
-        public static object? GenericCreator(Type baseType, Type type)
+        public static object? GenericCreator(Type type, Type genericType)
         {
-            if (!baseType.IsGenericType) return null;
-            Type typedType = baseType.MakeGenericType(type);
-            return Activator.CreateInstance(typedType);
+            try
+            {
+                if (!genericType.IsGenericType) return default;
+                Type typedType = genericType.MakeGenericType(type);
+                return Activator.CreateInstance(typedType);
+            }
+            catch { return default; }
         }
 
-        public static object? GenericInvoker(
-            Type targetType,
+        public static bool ImplementsGeneric(Type type, Type genericType)
+        {
+            type = Nullable.GetUnderlyingType(type) ?? type;
+
+            if (type.GetInterfaces().Any(i => i.IsGenericType &&
+            i.GetGenericTypeDefinition() == genericType))
+                return true;
+
+            return false;
+        }
+
+        public static object? Invoke(
             object? instance,
+            Type instanceType,
             string methodName,
-            Type[] genericTypes,
-            params object[] args
+            Type[] parameterTypes,
+            ref object?[] args
         )
         {
-            BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
-                                 BindingFlags.Instance | BindingFlags.Static;
+            try
+            {
+                BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
+                                     BindingFlags.Instance | BindingFlags.Static;
 
-            MethodInfo? methodInfo = targetType.GetMethod(methodName, flags);
 
-            if (methodInfo == null)
-                throw new MissingMethodException(targetType.FullName, methodName);
+                MethodInfo[] methods = [.. instanceType.GetMethods(flags)
+                                                   .Where(m => m.Name == methodName &&
+                                                               m.GetParameters().Length == parameterTypes.Length)];
 
-            if (!methodInfo.IsGenericMethodDefinition)
-                throw new InvalidOperationException($"{methodName} is not a generic method definition.");
+                foreach (MethodInfo m in methods)
+                {
+                    if (m.IsGenericMethod)
+                    {
+                        try { return m.MakeGenericMethod(parameterTypes).Invoke(instance, args); }
+                        catch { }
+                    }
+                }
 
-            MethodInfo genericMethod = methodInfo.MakeGenericMethod(genericTypes);
+                MethodBase? methodBase = Type.DefaultBinder.SelectMethod(
+                    flags,
+                    methods,
+                    parameterTypes,
+                    null);
 
-            return genericMethod.Invoke(instance, args);
+                if (methodBase == null)
+                    return null;
+
+                if (methodBase is not MethodInfo method)
+                    return null;
+
+                return method.Invoke(instance, args);
+            }
+            catch (AmbiguousMatchException)
+            {
+                return null;
+            }
+            catch (MissingMethodException)
+            {
+                return null;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
-
     }
 }

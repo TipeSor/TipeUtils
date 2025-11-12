@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 #pragma warning disable IDE0011, IDE0046, IDE0058
 namespace TipeUtils
 {
-    public class Input : IDisposable
+    public sealed class Input : IDisposable
     {
         public TextReader Stream { get; }
         private readonly bool _skipDispose;
@@ -36,7 +36,9 @@ namespace TipeUtils
         {
             string input = ReadLine();
             if (string.IsNullOrWhiteSpace(input))
+            {
                 return false;
+            }
             Tokens.Enqueue(Formatting.Split(input));
             return true;
         }
@@ -49,27 +51,53 @@ namespace TipeUtils
         public string? GetToken()
         {
             string? token;
-            while ((token = Tokens.Dequeue()) is null)
+            while (!Tokens.TryDequeue(out token))
             {
                 if (!PopulateTokens())
                     return null;
             }
-
             return token;
         }
 
-        public T? Read<T>()
+        public T? Read<T>() where T : notnull
+        {
+            if (typeof(T).Implements(typeof(IInputable<>)))
+            {
+                object?[] args = [null];
+                this.TryInvoke("TryReadComplex", [typeof(T)], out bool result, ref args);
+                return result && args[0] is T item ? item : default;
+            }
+            return ReadSimple<T>();
+        }
+
+        public T? ReadSimple<T>() where T : notnull
         {
             string? token = GetToken();
             if (token == null)
                 return default;
-            return Parser.FromString<T>(token);
+
+            if (Parser.TryFromString(token, out T? value))
+                return value;
+
+            return default;
         }
 
-        public bool TryRead<T>([NotNullWhen(true)] out T? value)
+        public bool TryRead<T>([NotNullWhen(true)] out T? value) where T : notnull
         {
             value = Read<T>();
             return value is not null;
+        }
+
+        public bool TryReadSimple<T>([NotNullWhen(true)] out T? value) where T : notnull
+        {
+
+            value = ReadSimple<T>();
+            return value is not null;
+        }
+
+        public bool TryReadComplex<T>([NotNullWhen(true)] out T? value) where T : notnull, IInputable<T>
+        {
+            return T.TryRead(this, out value);
         }
 
         public void Close()
@@ -83,7 +111,7 @@ namespace TipeUtils
             GC.SuppressFinalize(this);
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
             if (_disposed)
                 return;
@@ -95,5 +123,10 @@ namespace TipeUtils
 
             _disposed = true;
         }
+    }
+
+    public interface IInputable<T> where T : notnull, IInputable<T>
+    {
+        static abstract bool TryRead(Input input, [NotNullWhen(true)] out T? value);
     }
 }

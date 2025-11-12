@@ -37,7 +37,7 @@ namespace TipeUtils
 
         public static IEnumerable<string> Split(string input)
         {
-            if (input == string.Empty) yield break;
+            if (string.IsNullOrWhiteSpace(input)) yield break;
 
             StringBuilder current = new();
 

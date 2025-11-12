@@ -199,7 +199,7 @@ namespace TipeUtils
                         writer.WriteLine();
                         for (uint col = 0; col <= _colCount; col++)
                         {
-                            TryGetColConfig(col, out ColConfig? colConfig);
+                            ColConfig colConfig = colConfigs[col];
 
                             // bottom-right
                             TryGet(row, col, out Cell cell1);

@@ -1,11 +1,14 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 #pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
 namespace TipeUtils
 {
-    public class LazyQueue<T> : IEnumerable<T>
+    public class LazyQueue<T> : IEnumerable<T> where T : notnull
     {
         private readonly Queue<IEnumerable<T>> _sources = new();
         private IEnumerator<T>? _currentEnumerator;
+
+        private readonly List<T> _tinyItems = [];
 
         public LazyQueue() { }
 
@@ -16,26 +19,33 @@ namespace TipeUtils
 
         public void Enqueue(IEnumerable<T> source)
         {
+            FlushTinyItems();
             _sources.Enqueue(source);
         }
 
         public void Enqueue(T item)
         {
-            _sources.Enqueue([item]);
+            _tinyItems.Add(item);
         }
 
-        public T? Dequeue()
+        private void FlushTinyItems()
+        {
+            if (_tinyItems.IsEmpty()) return;
+            _sources.Enqueue([.. _tinyItems]);
+            _tinyItems.Clear();
+        }
+
+        public T Dequeue()
         {
             while (true)
             {
                 if (_currentEnumerator == null)
                 {
-                    if (_sources.Count == 0)
-                        return default;
+                    FlushTinyItems();
                     _currentEnumerator = _sources.Dequeue().GetEnumerator();
                 }
 
-                if (_currentEnumerator!.MoveNext())
+                if (_currentEnumerator.MoveNext())
                     return _currentEnumerator.Current;
 
                 _currentEnumerator.Dispose();
@@ -43,10 +53,15 @@ namespace TipeUtils
             }
         }
 
+        public bool TryDequeue([NotNullWhen(true)] out T? value)
+        {
+            try { value = Dequeue(); return true; }
+            catch (InvalidOperationException) { value = default; return false; }
+        }
+
         public IEnumerator<T> GetEnumerator()
         {
-            T? item;
-            while ((item = Dequeue()) is not null)
+            while (TryDequeue(out T? item))
                 yield return item;
         }
 
