@@ -3,10 +3,14 @@ using System.Diagnostics.CodeAnalysis;
 #pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
 namespace TipeUtils
 {
-    public class LazyQueue<T> : IEnumerable<T> where T : notnull
+    public class LazyQueue<T> : IDisposable, IEnumerable<T> where T : notnull
     {
         private readonly Queue<IEnumerable<T>> _sources = new();
         private IEnumerator<T>? _currentEnumerator;
+        private bool _disposed;
+
+        private T? _peekedItem;
+        private bool _peeked;
 
         private readonly List<T> _tinyItems = [];
 
@@ -35,13 +39,32 @@ namespace TipeUtils
             _tinyItems.Clear();
         }
 
+        public T Peek()
+        {
+            if (_peeked) return _peekedItem!;
+            _peekedItem = Dequeue();
+            _peeked = true;
+            return _peekedItem;
+        }
+
         public T Dequeue()
         {
             while (true)
             {
+                if (_peeked)
+                {
+                    _peeked = false;
+                    return _peekedItem!;
+                }
+
                 if (_currentEnumerator == null)
                 {
-                    FlushTinyItems();
+                    if (_sources.IsEmpty())
+                    {
+                        FlushTinyItems();
+                        if (_sources.IsEmpty())
+                            throw new InvalidOperationException("LazyQueue is empty");
+                    }
                     _currentEnumerator = _sources.Dequeue().GetEnumerator();
                 }
 
@@ -68,6 +91,25 @@ namespace TipeUtils
         IEnumerator IEnumerable.GetEnumerator()
         {
             return GetEnumerator();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                _currentEnumerator?.Dispose();
+            }
+
+            _disposed = true;
         }
     }
 }

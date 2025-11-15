@@ -8,19 +8,18 @@ namespace TipeUtils
         {
             try
             {
-                if (!genericType.IsGenericType) return default;
+                if (!genericType.IsGenericTypeDefinition) return default;
                 Type typedType = genericType.MakeGenericType(type);
                 return Activator.CreateInstance(typedType);
             }
             catch { return default; }
         }
 
-        public static bool ImplementsGeneric(Type type, Type genericType)
+        public static bool ImplementsInterface(Type type, Type interfaceType)
         {
             type = Nullable.GetUnderlyingType(type) ?? type;
-
             if (type.GetInterfaces().Any(i => i.IsGenericType &&
-            i.GetGenericTypeDefinition() == genericType))
+            i.GetGenericTypeDefinition() == interfaceType))
                 return true;
 
             return false;
@@ -31,54 +30,69 @@ namespace TipeUtils
             Type instanceType,
             string methodName,
             Type[] parameterTypes,
-            ref object?[] args
-        )
+            ref object?[] args)
         {
-            try
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
+                                      BindingFlags.Instance | BindingFlags.Static;
+
+            List<MethodInfo> methods =
+                [.. instanceType.GetMethods(flags)
+                                .Where(m => m.Name == methodName &&
+                                            m.GetParameters().Length == parameterTypes.Length)];
+
+            foreach (MethodInfo? method in methods.Where(m => m.IsGenericMethod))
             {
-                BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
-                                     BindingFlags.Instance | BindingFlags.Static;
-
-
-                MethodInfo[] methods = [.. instanceType.GetMethods(flags)
-                                                   .Where(m => m.Name == methodName &&
-                                                               m.GetParameters().Length == parameterTypes.Length)];
-
-                foreach (MethodInfo m in methods)
+                try
                 {
-                    if (m.IsGenericMethod)
+                    ParameterInfo[] methodParams = method.GetParameters();
+                    List<Type> genericTypes = [];
+
+                    for (int i = 0; i < methodParams.Length; i++)
                     {
-                        try { return m.MakeGenericMethod(parameterTypes).Invoke(instance, args); }
-                        catch { }
+                        Type paramType = methodParams[i].ParameterType;
+                        Type argType = parameterTypes[i];
+
+                        if (paramType.IsGenericParameter)
+                        {
+                            genericTypes.Add(argType);
+                        }
+                        else if (paramType.IsByRef && paramType.GetElementType()!.IsGenericParameter)
+                        {
+                            genericTypes.Add(argType.GetElementType() ?? argType);
+                        }
+                    }
+
+                    if (genericTypes.Count > 0)
+                    {
+                        MethodInfo constructedMethod = method.MakeGenericMethod([.. genericTypes]);
+                        return constructedMethod.Invoke(instance, args);
                     }
                 }
-
-                MethodBase? methodBase = Type.DefaultBinder.SelectMethod(
-                    flags,
-                    methods,
-                    parameterTypes,
-                    null);
-
-                if (methodBase == null)
-                    return null;
-
-                if (methodBase is not MethodInfo method)
-                    return null;
-
-                return method.Invoke(instance, args);
+                catch (TargetInvocationException ex)
+                {
+                    throw ex.InnerException ?? ex;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Failed to invoke {methodName} on {instanceType}", ex);
+                }
             }
-            catch (AmbiguousMatchException)
-            {
+
+            MethodInfo[] nonGenericMethods = [.. methods
+                .Where(m => !m.IsGenericMethodDefinition)
+                .GroupBy(m => m.MetadataToken)
+                .Select(g => g.First())];
+
+            if (nonGenericMethods.Length == 0)
                 return null;
-            }
-            catch (MissingMethodException)
-            {
-                return null;
-            }
-            catch (ArgumentException)
-            {
-                return null;
-            }
+
+            MethodInfo? selectedMethod = Type.DefaultBinder.SelectMethod(
+                flags | BindingFlags.InvokeMethod,
+                nonGenericMethods,
+                parameterTypes,
+                null) as MethodInfo;
+
+            return selectedMethod?.Invoke(instance, args);
         }
     }
 }

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 #pragma warning disable IDE0011, IDE0046, IDE0058
 namespace TipeUtils
 {
@@ -7,24 +8,67 @@ namespace TipeUtils
         public TextReader Stream { get; }
         private readonly bool _skipDispose;
         private bool _disposed;
+        public bool CanPopulate { get; set; } = true;
+
+        private static readonly Dictionary<Type, InputElement[]> elementMap = [];
+        private static bool _initialized;
 
         private LazyQueue<string> Tokens { get; set; } = [];
 
-        public Input()
-        {
-            Stream = Console.In;
-            _skipDispose = true;
-        }
+        public Input() :
+            this(new StreamReader(Console.OpenStandardInput(), leaveOpen: true), true)
+        { }
 
-        public Input(string path)
-        {
-            Stream = new StreamReader(path);
-        }
+        public Input(string path) :
+            this(new StreamReader(path))
+        { }
 
         public Input(TextReader reader, bool skipDispose = false)
         {
+            if (!_initialized) Initialize();
             Stream = reader;
             _skipDispose = skipDispose;
+        }
+
+        private static void Initialize()
+        {
+            if (_initialized) return;
+
+            BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+
+            IEnumerable<Type> types = AppDomain.CurrentDomain
+                                    .GetAssemblies()
+                                    .SelectMany(static asm => asm.GetTypes())
+                                    .Where(static t => t != null && t.HasAttribute<ComplexTypeAttribute>());
+
+            foreach (Type type in types)
+            {
+                IEnumerable<(InputElement, int)> elements =
+                    type.GetFields(flags)
+                            .Select(static f => (f, a: f.GetCustomAttribute<InputElementAttribute>()))
+                            .Where(static pair => pair.a != null)
+                            .Select(static pair => (new InputElement(pair.f.Name, pair.f.FieldType, false), pair.a!.Index))
+                            .Concat(
+                                type.GetProperties(flags)
+                                    .Select(static p => (p, a: p.GetCustomAttribute<InputElementAttribute>()))
+                                    .Where(static pair => pair.a != null)
+                                    .Select(static pair => (new InputElement(pair.p.Name, pair.p.PropertyType, true), pair.a!.Index))
+                            ).OrderBy(static pair => pair.Index);
+                {
+                    int expected = 0;
+                    foreach ((_, int index) in elements)
+                    {
+                        if (index != expected++)
+                            throw new InvalidOperationException($"{type.Name} invalid element indexes");
+                    }
+                    if (expected == 0)
+                        throw new InvalidOperationException($"{type.Name} has no valid input elements.");
+                }
+
+                elementMap[type] = [.. elements.Select(static pair => pair.Item1)];
+            }
+
+            _initialized = true;
         }
 
         public string ReadLine()
@@ -34,6 +78,8 @@ namespace TipeUtils
 
         private bool PopulateTokens()
         {
+            if (!CanPopulate) return false;
+
             string input = ReadLine();
             if (string.IsNullOrWhiteSpace(input))
             {
@@ -59,50 +105,103 @@ namespace TipeUtils
             return token;
         }
 
-        public T? Read<T>() where T : notnull
+        public object? Read(Type type)
         {
-            if (typeof(T).Implements(typeof(IInputable<>)))
-            {
-                object?[] args = [null];
-                this.TryInvoke("TryReadComplex", [typeof(T)], out bool result, ref args);
-                return result && args[0] is T item ? item : default;
-            }
-            return ReadSimple<T>();
+            if (elementMap.ContainsKey(type))
+                return ReadComplex(type);
+            return ReadSimple(type);
         }
 
-        public T? ReadSimple<T>() where T : notnull
+        public T? Read<T>()
+            where T : notnull, new()
         {
-            string? token = GetToken();
-            if (token == null)
-                return default;
-
-            if (Parser.TryFromString(token, out T? value))
-                return value;
-
-            return default;
+            return (T?)Read(typeof(T));
         }
 
-        public bool TryRead<T>([NotNullWhen(true)] out T? value) where T : notnull
+        public bool TryRead<T>([NotNullWhen(true)] out T? value)
+            where T : notnull, new()
         {
             value = Read<T>();
             return value is not null;
         }
 
-        public bool TryReadSimple<T>([NotNullWhen(true)] out T? value) where T : notnull
+        internal object? ReadSimple(Type type)
         {
+            string? token = GetToken();
+            if (token == null)
+                return GetDefault(type);
 
-            value = ReadSimple<T>();
-            return value is not null;
+            if (Parser.TryParse(token, type, out object? value))
+                return value;
+
+            return GetDefault(type);
         }
 
-        public bool TryReadComplex<T>([NotNullWhen(true)] out T? value) where T : notnull, IInputable<T>
+
+        internal object? ReadComplex(Type type)
         {
-            return T.TryRead(this, out value);
+            if (!elementMap.TryGetValue(type, out InputElement[]? elements))
+                throw new InvalidOperationException($"Input map for {type.Name} not found");
+
+            object? obj = Activator.CreateInstance(type)
+                ?? throw new InvalidOperationException
+                ($"{type.Name} cannot be deserialized because it does not have a parameterless constructor.");
+
+            InputElement? failedElement = null;
+
+            foreach (InputElement element in elements)
+            {
+                Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
+
+                object? value = Read(memberType);
+
+                if (value == null)
+                {
+                    failedElement ??= element;
+                    continue;
+                }
+
+                if (element.IsProperty)
+                {
+                    PropertyInfo? prop = type.GetProperty(element.Name,
+                        BindingFlags.Instance | BindingFlags.Public);
+                    if (prop?.CanWrite == true)
+                        prop.SetValue(obj, value);
+                }
+                else
+                {
+                    FieldInfo? field = type.GetField(element.Name);
+
+                    if (field == null)
+                    {
+                        failedElement ??= element;
+                        continue;
+                    }
+
+                    field.SetValue(obj, value);
+                }
+            }
+
+            if (failedElement != null)
+                throw new InvalidOperationException($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
+
+            return obj;
         }
 
         public void Close()
         {
             Stream.Close();
+        }
+
+        private static object? GetDefault(Type type)
+        {
+            if (!type.IsValueType)
+                return null;
+
+            if (Nullable.GetUnderlyingType(type) != null)
+                return null;
+
+            return Activator.CreateInstance(type);
         }
 
         public void Dispose()
@@ -125,8 +224,17 @@ namespace TipeUtils
         }
     }
 
-    public interface IInputable<T> where T : notnull, IInputable<T>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    public class ComplexTypeAttribute : Attribute
     {
-        static abstract bool TryRead(Input input, [NotNullWhen(true)] out T? value);
+
     }
+
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    public class InputElementAttribute(int index) : Attribute
+    {
+        public int Index { get; } = index;
+    }
+
+    internal record InputElement(string Name, Type MemberType, bool IsProperty);
 }

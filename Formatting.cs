@@ -4,25 +4,30 @@ namespace TipeUtils
 {
     public static class Formatting
     {
-        public static string LeftPad(string? text, int length, char fill = ' ')
+        internal static string Stringify(object? obj)
         {
-            text ??= string.Empty;
+            return obj?.ToString() ?? string.Empty;
+        }
+
+        public static string LeftPad(object? obj, int length, char fill = ' ')
+        {
+            string text = Stringify(obj);
             return text.Length >= length
                 ? text[..length]
                 : text + new string(fill, length - text.Length);
         }
 
-        public static string RightPad(string? text, int length, char fill = ' ')
+        public static string RightPad(object? obj, int length, char fill = ' ')
         {
-            text ??= string.Empty;
+            string text = Stringify(obj);
             return text.Length >= length
                 ? text[..length]
                 : new string(fill, length - text.Length) + text;
         }
 
-        public static string CenterPad(string? text, int length, char fill = ' ')
+        public static string CenterPad(object? obj, int length, char fill = ' ')
         {
-            text ??= string.Empty;
+            string text = Stringify(obj);
             if (text.Length >= length)
             {
                 return text[..length];

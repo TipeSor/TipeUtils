@@ -1,8 +1,6 @@
-
-#pragma warning disable IDE0011, IDE0046, IDE0058
 using System.Collections;
-using System.Diagnostics.CodeAnalysis;
-
+using System.Reflection;
+#pragma warning disable IDE0011, IDE0046, IDE0058
 namespace TipeUtils
 {
     public static class Extensions
@@ -12,9 +10,23 @@ namespace TipeUtils
             return source.Count == 0;
         }
 
-        public static bool Implements(this Type source, Type genericType)
+        public static bool Implements<TInterface>(this Type type)
+            where TInterface : class
         {
-            return Reflection.ImplementsGeneric(source, genericType);
+            if (!typeof(TInterface).IsInterface)
+                throw new ArgumentException($"{typeof(TInterface).Name} must be an interface type");
+
+            return type.Implements(typeof(TInterface));
+        }
+
+        public static bool Implements(this Type type, Type genericType)
+        {
+            return Reflection.ImplementsInterface(type, genericType);
+        }
+
+        public static bool HasAttribute<T>(this MemberInfo element) where T : Attribute
+        {
+            return Attribute.IsDefined(element, typeof(T));
         }
 
         public static object? Invoke<T>(
@@ -33,18 +45,27 @@ namespace TipeUtils
             this T source,
             string name,
             Type[] parameterTypes,
-            [NotNullWhen(true)] out TResult? value,
+            out TResult? result,
             ref object?[] args)
-            where T : notnull
         {
-            if (source.Invoke(name, parameterTypes, ref args) is TResult result)
+            try
             {
-                value = result;
-                return true;
-            }
+                object? returnValue = source.Invoke(name, parameterTypes, ref args);
 
-            value = default;
-            return false;
+                if (returnValue is TResult castResult)
+                {
+                    result = castResult;
+                    return true;
+                }
+
+                result = default;
+                return returnValue == null && default(TResult) == null;
+            }
+            catch
+            {
+                result = default;
+                return false;
+            }
         }
     }
 }
