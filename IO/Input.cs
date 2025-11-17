@@ -1,7 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
-#pragma warning disable IDE0011, IDE0046, IDE0058
-namespace TipeUtils
+using TipeUtils.Collections;
+using TipeUtils.Formatting;
+using TipeUtils.Parsing;
+using TipeUtils.Reflection;
+
+namespace TipeUtils.IO
 {
     public sealed class Input : IDisposable
     {
@@ -14,6 +18,9 @@ namespace TipeUtils
         private static bool _initialized;
 
         private LazyQueue<string> Tokens { get; set; } = [];
+
+        private static readonly object _staticLock = new();
+        private readonly object _instanceLock = new();
 
         public Input() :
             this(new StreamReader(Console.OpenStandardInput(), leaveOpen: true), true)
@@ -32,43 +39,46 @@ namespace TipeUtils
 
         private static void Initialize()
         {
-            if (_initialized) return;
-
-            BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
-
-            IEnumerable<Type> types = AppDomain.CurrentDomain
-                                    .GetAssemblies()
-                                    .SelectMany(static asm => asm.GetTypes())
-                                    .Where(static t => t != null && t.HasAttribute<ComplexTypeAttribute>());
-
-            foreach (Type type in types)
+            lock (_staticLock)
             {
-                IEnumerable<(InputElement, int)> elements =
-                    type.GetFields(flags)
-                            .Select(static f => (f, a: f.GetCustomAttribute<InputElementAttribute>()))
-                            .Where(static pair => pair.a != null)
-                            .Select(static pair => (new InputElement(pair.f.Name, pair.f.FieldType, false), pair.a!.Index))
-                            .Concat(
-                                type.GetProperties(flags)
-                                    .Select(static p => (p, a: p.GetCustomAttribute<InputElementAttribute>()))
-                                    .Where(static pair => pair.a != null)
-                                    .Select(static pair => (new InputElement(pair.p.Name, pair.p.PropertyType, true), pair.a!.Index))
-                            ).OrderBy(static pair => pair.Index);
+                if (_initialized) return;
+
+                BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+
+                IEnumerable<Type> types = AppDomain.CurrentDomain
+                                        .GetAssemblies()
+                                        .SelectMany(static asm => asm.GetTypes())
+                                        .Where(static t => t != null && t.HasAttribute<ComplexTypeAttribute>());
+
+                foreach (Type type in types)
                 {
-                    int expected = 0;
-                    foreach ((_, int index) in elements)
+                    IEnumerable<(InputElement, int)> elements =
+                        type.GetFields(flags)
+                                .Select(static f => (f, a: f.GetCustomAttribute<InputElementAttribute>()))
+                                .Where(static pair => pair.a != null)
+                                .Select(static pair => (new InputElement(pair.f.Name, pair.f.FieldType, false), pair.a!.Index))
+                                .Concat(
+                                    type.GetProperties(flags)
+                                        .Select(static p => (p, a: p.GetCustomAttribute<InputElementAttribute>()))
+                                        .Where(static pair => pair.a != null)
+                                        .Select(static pair => (new InputElement(pair.p.Name, pair.p.PropertyType, true), pair.a!.Index))
+                                ).OrderBy(static pair => pair.Index);
                     {
-                        if (index != expected++)
-                            throw new InvalidOperationException($"{type.Name} invalid element indexes");
+                        int expected = 0;
+                        foreach ((_, int index) in elements)
+                        {
+                            if (index != expected++)
+                                throw new InvalidOperationException($"{type.Name} invalid element indexes");
+                        }
+                        if (expected == 0)
+                            throw new InvalidOperationException($"{type.Name} has no valid input elements.");
                     }
-                    if (expected == 0)
-                        throw new InvalidOperationException($"{type.Name} has no valid input elements.");
+
+                    elementMap[type] = [.. elements.Select(static pair => pair.Item1)];
                 }
 
-                elementMap[type] = [.. elements.Select(static pair => pair.Item1)];
+                _initialized = true;
             }
-
-            _initialized = true;
         }
 
         public string ReadLine()
@@ -76,18 +86,7 @@ namespace TipeUtils
             return Stream.ReadLine() ?? string.Empty;
         }
 
-        private bool PopulateTokens()
-        {
-            if (!CanPopulate) return false;
 
-            string input = ReadLine();
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                return false;
-            }
-            Tokens.Enqueue(Formatting.Split(input));
-            return true;
-        }
 
         public string[] GetTokens()
         {
@@ -105,11 +104,31 @@ namespace TipeUtils
             return token;
         }
 
+        private bool PopulateTokens()
+        {
+            if (!CanPopulate) return false;
+
+            string input = ReadLine();
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return false;
+            }
+            Tokens.Enqueue(StringUtils.Split(input));
+            return true;
+        }
+
         public object? Read(Type type)
         {
-            if (elementMap.ContainsKey(type))
-                return ReadComplex(type);
-            return ReadSimple(type);
+            lock (_instanceLock)
+            {
+                return ReadUnsafe(type);
+            }
+        }
+
+        public bool? TryRead(Type type, [NotNullWhen(true)] out object? value)
+        {
+            value = Read(type);
+            return value is not null;
         }
 
         public T? Read<T>()
@@ -125,13 +144,20 @@ namespace TipeUtils
             return value is not null;
         }
 
+        internal object? ReadUnsafe(Type type)
+        {
+            if (elementMap.ContainsKey(type))
+                return ReadComplex(type);
+            return ReadSimple(type);
+        }
+
         internal object? ReadSimple(Type type)
         {
             string? token = GetToken();
             if (token == null)
                 return GetDefault(type);
 
-            if (Parser.TryParse(token, type, out object? value))
+            if (TypeParser.TryParse(token, type, out object? value))
                 return value;
 
             return GetDefault(type);
@@ -153,7 +179,7 @@ namespace TipeUtils
             {
                 Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
 
-                object? value = Read(memberType);
+                object? value = ReadUnsafe(memberType);
 
                 if (value == null)
                 {

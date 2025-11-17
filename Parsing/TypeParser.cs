@@ -1,10 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-#pragma warning disable IDE0011, IDE0046, IDE0058
-namespace TipeUtils
+
+namespace TipeUtils.Parsing
 {
-    public static class Parser
+    public static class TypeParser
     {
         public static object Parse(string token, Type type)
         {

@@ -1,8 +1,8 @@
 using System.Text;
 #pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
-namespace TipeUtils
+namespace TipeUtils.Formatting
 {
-    public static class Formatting
+    public static class StringUtils
     {
         internal static string Stringify(object? obj)
         {

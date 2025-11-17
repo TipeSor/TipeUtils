@@ -1,7 +1,7 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
-#pragma warning disable IDE0011, IDE0022, IDE0046, IDE0058
-namespace TipeUtils
+
+namespace TipeUtils.Collections
 {
     public class LazyQueue<T> : IDisposable, IEnumerable<T> where T : notnull
     {
@@ -34,7 +34,7 @@ namespace TipeUtils
 
         private void FlushTinyItems()
         {
-            if (_tinyItems.IsEmpty()) return;
+            if (_tinyItems.Count == 0) return;
             _sources.Enqueue([.. _tinyItems]);
             _tinyItems.Clear();
         }
@@ -59,10 +59,10 @@ namespace TipeUtils
 
                 if (_currentEnumerator == null)
                 {
-                    if (_sources.IsEmpty())
+                    if (_sources.Count == 0)
                     {
                         FlushTinyItems();
-                        if (_sources.IsEmpty())
+                        if (_sources.Count == 0)
                             throw new InvalidOperationException("LazyQueue is empty");
                     }
                     _currentEnumerator = _sources.Dequeue().GetEnumerator();

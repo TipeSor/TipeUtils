@@ -1,8 +1,8 @@
 using System.Reflection;
-#pragma warning disable IDE0011, IDE0046, IDE0058
-namespace TipeUtils
+
+namespace TipeUtils.Reflection
 {
-    public static class Reflection
+    public static class ReflectionUtils
     {
         public static object? GenericCreator(Type type, Type genericType)
         {
@@ -15,7 +15,7 @@ namespace TipeUtils
             catch { return default; }
         }
 
-        public static bool ImplementsInterface(Type type, Type interfaceType)
+        internal static bool ImplementsInterface(Type type, Type interfaceType)
         {
             type = Nullable.GetUnderlyingType(type) ?? type;
             if (type.GetInterfaces().Any(i => i.IsGenericType &&
@@ -25,7 +25,7 @@ namespace TipeUtils
             return false;
         }
 
-        public static object? Invoke(
+        internal static object? Invoke(
             object? instance,
             Type instanceType,
             string methodName,
