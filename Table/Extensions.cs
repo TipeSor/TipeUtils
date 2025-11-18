@@ -1,4 +1,4 @@
-namespace TipeUtils.Tables.Extensions
+namespace TipeUtils.Tables
 {
     public static class TableExtensions
     {

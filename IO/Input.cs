@@ -12,15 +12,20 @@ namespace TipeUtils.IO
         public TextReader Stream { get; }
         private readonly bool _skipDispose;
         private bool _disposed;
-        public bool CanPopulate { get; set; } = true;
+        private bool _canPopulate = true;
+        public bool CanPopulate
+        {
+            get { lock (_syncLock) return _canPopulate; }
+            set { lock (_syncLock) _canPopulate = value; }
+        }
 
         private static readonly Dictionary<Type, InputElement[]> elementMap = [];
         private static bool _initialized;
 
         private LazyQueue<string> Tokens { get; set; } = [];
 
-        private static readonly object _staticLock = new();
-        private readonly object _instanceLock = new();
+        private static readonly object _initLock = new();
+        internal readonly object _syncLock = new();
 
         public Input() :
             this(new StreamReader(Console.OpenStandardInput(), leaveOpen: true), true)
@@ -32,83 +37,108 @@ namespace TipeUtils.IO
 
         public Input(TextReader reader, bool skipDispose = false)
         {
-            if (!_initialized) Initialize();
+            EnsureInitialized();
             Stream = reader;
             _skipDispose = skipDispose;
         }
 
+        private static void EnsureInitialized()
+        {
+            if (_initialized) return;
+            lock (_initLock)
+            {
+                if (!_initialized)
+                    Initialize();
+            }
+        }
+
         private static void Initialize()
         {
-            lock (_staticLock)
+            if (_initialized) return;
+
+            BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+
+            IEnumerable<Type> types = AppDomain.CurrentDomain
+                                    .GetAssemblies()
+                                    .SelectMany(static asm => asm.GetTypes())
+                                    .Where(static t => t != null && t.HasAttribute<ComplexTypeAttribute>());
+
+            foreach (Type type in types)
             {
-                if (_initialized) return;
-
-                BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
-
-                IEnumerable<Type> types = AppDomain.CurrentDomain
-                                        .GetAssemblies()
-                                        .SelectMany(static asm => asm.GetTypes())
-                                        .Where(static t => t != null && t.HasAttribute<ComplexTypeAttribute>());
-
-                foreach (Type type in types)
+                IEnumerable<(InputElement, int)> elements =
+                    type.GetFields(flags)
+                            .Select(static f => (f, a: f.GetCustomAttribute<InputElementAttribute>()))
+                            .Where(static pair => pair.a != null)
+                            .Select(static pair => (new InputElement(pair.f.Name, pair.f.FieldType, false), pair.a!.Index))
+                            .Concat(
+                                type.GetProperties(flags)
+                                    .Select(static p => (p, a: p.GetCustomAttribute<InputElementAttribute>()))
+                                    .Where(static pair => pair.a != null)
+                                    .Select(static pair => (new InputElement(pair.p.Name, pair.p.PropertyType, true), pair.a!.Index))
+                            ).OrderBy(static pair => pair.Index);
                 {
-                    IEnumerable<(InputElement, int)> elements =
-                        type.GetFields(flags)
-                                .Select(static f => (f, a: f.GetCustomAttribute<InputElementAttribute>()))
-                                .Where(static pair => pair.a != null)
-                                .Select(static pair => (new InputElement(pair.f.Name, pair.f.FieldType, false), pair.a!.Index))
-                                .Concat(
-                                    type.GetProperties(flags)
-                                        .Select(static p => (p, a: p.GetCustomAttribute<InputElementAttribute>()))
-                                        .Where(static pair => pair.a != null)
-                                        .Select(static pair => (new InputElement(pair.p.Name, pair.p.PropertyType, true), pair.a!.Index))
-                                ).OrderBy(static pair => pair.Index);
+                    int expected = 0;
+                    foreach ((_, int index) in elements)
                     {
-                        int expected = 0;
-                        foreach ((_, int index) in elements)
-                        {
-                            if (index != expected++)
-                                throw new InvalidOperationException($"{type.Name} invalid element indexes");
-                        }
-                        if (expected == 0)
-                            throw new InvalidOperationException($"{type.Name} has no valid input elements.");
+                        if (index != expected++)
+                            throw new InvalidOperationException($"{type.Name} invalid element indexes");
                     }
-
-                    elementMap[type] = [.. elements.Select(static pair => pair.Item1)];
+                    if (expected == 0)
+                        throw new InvalidOperationException($"{type.Name} has no valid input elements.");
                 }
 
-                _initialized = true;
+                elementMap[type] = [.. elements.Select(static pair => pair.Item1)];
             }
+
+            _initialized = true;
         }
 
         public string ReadLine()
         {
-            return Stream.ReadLine() ?? string.Empty;
+            lock (_syncLock)
+                return ReadLineUnsafe();
+        }
+
+        public string[] GetTokens()
+        {
+            lock (_syncLock)
+                return GetTokensUnsafe();
         }
 
 
+        public string? GetToken()
+        {
+            lock (_syncLock)
+                return GetTokenUnsafe();
+        }
 
-        public string[] GetTokens()
+        internal string ReadLineUnsafe()
+        {
+            return Stream.ReadLine() ?? string.Empty;
+        }
+
+        internal string[] GetTokensUnsafe()
         {
             return [.. Tokens];
         }
 
-        public string? GetToken()
+        internal string? GetTokenUnsafe()
         {
             string? token;
             while (!Tokens.TryDequeue(out token))
             {
-                if (!PopulateTokens())
+                if (!PopulateTokensUnsafe())
                     return null;
             }
             return token;
+
         }
 
-        private bool PopulateTokens()
+        private bool PopulateTokensUnsafe()
         {
-            if (!CanPopulate) return false;
+            if (!_canPopulate) return false;
 
-            string input = ReadLine();
+            string input = ReadLineUnsafe();
             if (string.IsNullOrWhiteSpace(input))
             {
                 return false;
@@ -119,7 +149,7 @@ namespace TipeUtils.IO
 
         public object? Read(Type type)
         {
-            lock (_instanceLock)
+            lock (_syncLock)
             {
                 return ReadUnsafe(type);
             }
@@ -147,13 +177,13 @@ namespace TipeUtils.IO
         internal object? ReadUnsafe(Type type)
         {
             if (elementMap.ContainsKey(type))
-                return ReadComplex(type);
-            return ReadSimple(type);
+                return ReadComplexUnsafe(type);
+            return ReadSimpleUnsafe(type);
         }
 
-        internal object? ReadSimple(Type type)
+        internal object? ReadSimpleUnsafe(Type type)
         {
-            string? token = GetToken();
+            string? token = GetTokenUnsafe();
             if (token == null)
                 return GetDefault(type);
 
@@ -164,7 +194,7 @@ namespace TipeUtils.IO
         }
 
 
-        internal object? ReadComplex(Type type)
+        internal object? ReadComplexUnsafe(Type type)
         {
             if (!elementMap.TryGetValue(type, out InputElement[]? elements))
                 throw new InvalidOperationException($"Input map for {type.Name} not found");
@@ -214,11 +244,6 @@ namespace TipeUtils.IO
             return obj;
         }
 
-        public void Close()
-        {
-            Stream.Close();
-        }
-
         private static object? GetDefault(Type type)
         {
             if (!type.IsValueType)
@@ -238,15 +263,18 @@ namespace TipeUtils.IO
 
         private void Dispose(bool disposing)
         {
-            if (_disposed)
-                return;
-
-            if (disposing && !_skipDispose)
+            lock (_syncLock)
             {
-                Stream?.Dispose();
-            }
+                if (_disposed)
+                    return;
 
-            _disposed = true;
+                if (disposing && !_skipDispose)
+                {
+                    Stream?.Dispose();
+                }
+
+                _disposed = true;
+            }
         }
     }
 

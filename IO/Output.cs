@@ -2,7 +2,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
-namespace TipeUtils
+namespace TipeUtils.IO
 {
     public sealed class Output : TextWriter
     {
