@@ -13,6 +13,7 @@ namespace TipeUtils.Collections
         private bool _peeked;
 
         private readonly List<T> _tinyItems = [];
+        private readonly object _syncLock = new();
 
         public LazyQueue() { }
 
@@ -23,13 +24,17 @@ namespace TipeUtils.Collections
 
         public void Enqueue(IEnumerable<T> source)
         {
-            FlushTinyItems();
-            _sources.Enqueue(source);
+            lock (_syncLock)
+            {
+                FlushTinyItems();
+                _sources.Enqueue(source);
+            }
         }
 
         public void Enqueue(T item)
         {
-            _tinyItems.Add(item);
+            lock (_syncLock)
+                _tinyItems.Add(item);
         }
 
         private void FlushTinyItems()
@@ -41,13 +46,16 @@ namespace TipeUtils.Collections
 
         public T Peek()
         {
-            if (_peeked) return _peekedItem!;
-            _peekedItem = Dequeue();
-            _peeked = true;
-            return _peekedItem;
+            lock (_syncLock)
+            {
+                if (_peeked) return _peekedItem!;
+                _peekedItem = DequeueUnsafe();
+                _peeked = true;
+                return _peekedItem;
+            }
         }
 
-        public T Dequeue()
+        private T DequeueUnsafe()
         {
             while (true)
             {
@@ -73,6 +81,14 @@ namespace TipeUtils.Collections
 
                 _currentEnumerator.Dispose();
                 _currentEnumerator = null;
+            }
+        }
+
+        public T Dequeue()
+        {
+            lock (_syncLock)
+            {
+                return DequeueUnsafe();
             }
         }
 

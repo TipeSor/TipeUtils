@@ -49,31 +49,26 @@ namespace TipeUtils.Tables
             return cell;
         }
 
-        public bool TryGetRowConfig(uint row, out RowConfig config)
+        public RowConfig ViewRowConfig(uint row)
         {
-            bool res = _rowConfigs.TryGetValue(row, out RowConfig? value);
-            config = value ?? RowConfig.Default;
-            return res;
+            _rowConfigs.TryGetValue(row, out RowConfig? value);
+            return value ?? RowConfig.Default;
         }
 
-        public bool TryGetColConfig(uint col, out ColConfig config)
+        public ColConfig ViewColConfig(uint col)
         {
-            bool res = _colConfigs.TryGetValue(col, out ColConfig? value);
-            config = value ?? ColConfig.Default;
-            return res;
+            _colConfigs.TryGetValue(col, out ColConfig? value);
+            return value ?? ColConfig.Default;
         }
 
-        public bool TryGet(uint row, uint col, out Cell cell)
+        public Cell ViewCell(uint row, uint col)
         {
-            bool res = _cells.TryGetValue((row, col), out Cell? value);
-            cell = value ?? Cell.Empty;
-            return res;
+            _cells.TryGetValue((row, col), out Cell? value);
+            return value ?? Cell.Empty;
         }
 
         public Cell this[uint row, uint col] => Get(row, col);
     }
-
-
 
     public class RowConfig
     {
@@ -88,6 +83,4 @@ namespace TipeUtils.Tables
 
         public static readonly ColConfig Default = new();
     }
-
-
 }

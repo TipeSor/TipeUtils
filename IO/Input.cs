@@ -147,6 +147,34 @@ namespace TipeUtils.IO
             return true;
         }
 
+        public int ReadMany<T>(Span<T> buffer)
+            where T : notnull, new()
+        {
+            lock (_syncLock)
+            {
+                int i = 0;
+                for (; i < buffer.Length; i++)
+                {
+                    object? value = ReadUnsafe(typeof(T));
+                    if (value is null || value is not T typed) break;
+                    buffer[i] = typed;
+                }
+                return i;
+            }
+        }
+
+        public int ReadMany<T>(T[] buffer, int index, int length)
+            where T : notnull, new()
+        {
+            if ((uint)index > (uint)buffer.Length)
+                return -1;
+
+            if ((uint)length > (uint)(buffer.Length - index))
+                return -1;
+
+            return ReadMany(buffer.AsSpan(index, length));
+        }
+
         public object? Read(Type type)
         {
             lock (_syncLock)

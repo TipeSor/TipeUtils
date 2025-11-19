@@ -14,11 +14,11 @@ namespace TipeUtils.Tables
 
             ColConfig[] colConfigs = new ColConfig[colCount + 1];
             for (uint c = 0; c <= colCount; c++)
-                table.TryGetColConfig(c, out colConfigs[c]);
+                colConfigs[c] = table.ViewColConfig(c);
 
             RowConfig[] rowConfigs = new RowConfig[rowCount + 1];
             for (uint r = 0; r <= rowCount; r++)
-                table.TryGetRowConfig(r, out rowConfigs[r]);
+                rowConfigs[r] = table.ViewRowConfig(r);
 
             char[,] charmap = new char[4, 4] {
                 { '*'             , _border.Horizontal  , _border.Horizontal   , _border.Horizontal     },
@@ -36,22 +36,22 @@ namespace TipeUtils.Tables
                     ColConfig colConfig = colConfigs[col];
 
                     // bottom-right
-                    table.TryGet(row, col, out Cell cell1);
+                    Cell cell1 = table.ViewCell(row, col);
 
                     // bottom-left
                     Cell cell2 = new();
                     if (col > 0)
-                        table.TryGet(row, col - 1, out cell2);
+                        cell2 = table.ViewCell(row, col - 1);
 
                     // top-right
                     Cell cell3 = new();
                     if (row > 0)
-                        table.TryGet(row - 1, col, out cell3);
+                        cell3 = table.ViewCell(row - 1, col);
 
                     // top-left
                     Cell cell4 = new();
                     if (row > 0 && col > 0)
-                        table.TryGet(row - 1, col - 1, out cell4);
+                        cell4 = table.ViewCell(row - 1, col - 1);
 
                     CellBorder border1 = cell1.Config.Border;
                     CellBorder border2 = cell2.Config.Border;
@@ -81,8 +81,6 @@ namespace TipeUtils.Tables
 
                     _writer.Write(charmap[vertical, horizontal]);
                     if (col < colCount) _writer.Write(new string(charmap[0, right], colConfig.Width));
-
-
                 }
                 if (row < rowCount)
                 {
@@ -95,12 +93,12 @@ namespace TipeUtils.Tables
                             ColConfig colConfig = colConfigs[col];
 
                             // bottom-right
-                            table.TryGet(row, col, out Cell cell1);
+                            Cell cell1 = table.ViewCell(row, col);
 
                             // bottom-left
                             Cell cell2 = new();
                             if (col > 0)
-                                table.TryGet(row, col - 1, out cell2);
+                                cell2 = table.ViewCell(row, col - 1);
 
                             CellBorder border1 = cell1.Config.Border;
                             CellBorder border2 = cell2.Config.Border;
@@ -135,8 +133,6 @@ namespace TipeUtils.Tables
                         }
                     }
                 }
-
-                // new line
                 _writer.WriteLine();
             }
         }

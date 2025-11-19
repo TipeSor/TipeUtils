@@ -27,12 +27,12 @@ namespace TipeUtils.Reflection
             this T source,
             string name,
             Type[] parameterTypes,
-            ref object?[] args)
+            object?[] args)
         {
             object? target = source is Type ? null : source;
             Type sourceType = source is Type t ? t : typeof(T);
 
-            return ReflectionUtils.Invoke(target, sourceType, name, parameterTypes, ref args);
+            return ReflectionUtils.Invoke(target, sourceType, name, parameterTypes, args);
         }
 
         public static bool TryInvoke<T, TResult>(
@@ -40,11 +40,11 @@ namespace TipeUtils.Reflection
             string name,
             Type[] parameterTypes,
             out TResult? result,
-            ref object?[] args)
+            object?[] args)
         {
             try
             {
-                object? returnValue = source.Invoke(name, parameterTypes, ref args);
+                object? returnValue = source.Invoke(name, parameterTypes, args);
 
                 if (returnValue is TResult castResult)
                 {

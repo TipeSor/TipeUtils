@@ -30,15 +30,15 @@ namespace TipeUtils.Reflection
             Type instanceType,
             string methodName,
             Type[] parameterTypes,
-            ref object?[] args)
+            object?[] args)
         {
             const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
                                       BindingFlags.Instance | BindingFlags.Static;
 
-            List<MethodInfo> methods =
-                [.. instanceType.GetMethods(flags)
+            IEnumerable<MethodInfo> methods =
+                    instanceType.GetMethods(flags)
                                 .Where(m => m.Name == methodName &&
-                                            m.GetParameters().Length == parameterTypes.Length)];
+                                            m.GetParameters().Length == parameterTypes.Length);
 
             foreach (MethodInfo? method in methods.Where(m => m.IsGenericMethod))
             {
