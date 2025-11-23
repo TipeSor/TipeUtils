@@ -1,26 +1,24 @@
-using System.Collections;
-using System.Diagnostics.CodeAnalysis;
-
 namespace TipeUtils.Collections
 {
-    public class LazyQueue<T> : IDisposable, IEnumerable<T> where T : notnull
+    public class LazyQueue<T> : IDisposable where T : notnull
     {
         private readonly Queue<IEnumerable<T>> _sources = new();
         private IEnumerator<T>? _currentEnumerator;
         private bool _disposed;
 
-        private T? _peekedItem;
-        private bool _peeked;
+        private readonly int _tinyBufferSize;
+        private readonly T[] _tinyBuffer;
+        private int _tinyIndex;
 
-        private readonly List<T> _tinyItems = [];
         private readonly object _syncLock = new();
 
-        public LazyQueue() { }
-
-        public LazyQueue(IEnumerable<T> source)
+        public LazyQueue(int capacity)
         {
-            _sources.Enqueue(source);
+            _tinyBufferSize = capacity;
+            _tinyBuffer = new T[_tinyBufferSize];
         }
+
+        public LazyQueue() : this(64) { }
 
         public void Enqueue(IEnumerable<T> source)
         {
@@ -34,79 +32,52 @@ namespace TipeUtils.Collections
         public void Enqueue(T item)
         {
             lock (_syncLock)
-                _tinyItems.Add(item);
+            {
+                if (_tinyIndex >= _tinyBufferSize)
+                    FlushTinyItems();
+                _tinyBuffer[_tinyIndex++] = item;
+            }
         }
 
         private void FlushTinyItems()
         {
-            if (_tinyItems.Count == 0) return;
-            _sources.Enqueue([.. _tinyItems]);
-            _tinyItems.Clear();
+            if (_tinyIndex == 0) return;
+            T[] buffer = new T[_tinyIndex];
+            Array.Copy(_tinyBuffer, 0, buffer, 0, _tinyIndex);
+            _sources.Enqueue(buffer);
+            Array.Clear(_tinyBuffer, 0, _tinyIndex);
+            _tinyIndex = 0;
         }
 
-        public T Peek()
-        {
-            lock (_syncLock)
-            {
-                if (_peeked) return _peekedItem!;
-                _peekedItem = DequeueUnsafe();
-                _peeked = true;
-                return _peekedItem;
-            }
-        }
-
-        private T DequeueUnsafe()
+        private Result<T> DequeueUnsafe()
         {
             while (true)
             {
-                if (_peeked)
-                {
-                    _peeked = false;
-                    return _peekedItem!;
-                }
-
                 if (_currentEnumerator == null)
                 {
                     if (_sources.Count == 0)
-                    {
                         FlushTinyItems();
-                        if (_sources.Count == 0)
-                            throw new InvalidOperationException("LazyQueue is empty");
-                    }
+
+                    if (_sources.Count == 0)
+                        return Result<T>.Error("Queue is empty");
+
                     _currentEnumerator = _sources.Dequeue().GetEnumerator();
                 }
 
                 if (_currentEnumerator.MoveNext())
-                    return _currentEnumerator.Current;
+                    return Result<T>.Ok(_currentEnumerator.Current);
 
                 _currentEnumerator.Dispose();
                 _currentEnumerator = null;
             }
         }
 
-        public T Dequeue()
+        public Result<T> Dequeue()
         {
             lock (_syncLock)
             {
                 return DequeueUnsafe();
             }
-        }
-
-        public bool TryDequeue([NotNullWhen(true)] out T? value)
-        {
-            try { value = Dequeue(); return true; }
-            catch (InvalidOperationException) { value = default; return false; }
-        }
-
-        public IEnumerator<T> GetEnumerator()
-        {
-            while (TryDequeue(out T? item))
-                yield return item;
-        }
-
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return GetEnumerator();
         }
 
         public void Dispose()

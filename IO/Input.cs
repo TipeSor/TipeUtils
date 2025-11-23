@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using TipeUtils.Collections;
 using TipeUtils.Formatting;
@@ -10,7 +9,7 @@ namespace TipeUtils.IO
     public sealed class Input : IDisposable
     {
         public TextReader Stream { get; }
-        private readonly bool _skipDispose;
+        private readonly bool _leaveOpen;
         private bool _disposed;
         private bool _canPopulate = true;
         public bool CanPopulate
@@ -22,7 +21,7 @@ namespace TipeUtils.IO
         private static readonly Dictionary<Type, InputElement[]> elementMap = [];
         private static bool _initialized;
 
-        private LazyQueue<string> Tokens { get; set; } = [];
+        private LazyQueue<string> Tokens { get; set; } = new();
 
         private static readonly object _initLock = new();
         internal readonly object _syncLock = new();
@@ -32,14 +31,14 @@ namespace TipeUtils.IO
         { }
 
         public Input(string path) :
-            this(new StreamReader(path))
+            this(new StreamReader(path), false)
         { }
 
-        public Input(TextReader reader, bool skipDispose = false)
+        public Input(TextReader reader, bool leaveOpen)
         {
             EnsureInitialized();
             Stream = reader;
-            _skipDispose = skipDispose;
+            _leaveOpen = leaveOpen;
         }
 
         private static void EnsureInitialized()
@@ -54,40 +53,41 @@ namespace TipeUtils.IO
 
         private static void Initialize()
         {
-            if (_initialized) return;
-
             BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
 
             IEnumerable<Type> types = AppDomain.CurrentDomain
-                                    .GetAssemblies()
-                                    .SelectMany(static asm => asm.GetTypes())
-                                    .Where(static t => t != null && t.HasAttribute<ComplexTypeAttribute>());
+                .GetAssemblies()
+                .SelectMany(static asm => asm.GetTypes())
+                .Where(static t => t.HasAttribute<ComplexTypeAttribute>());
 
             foreach (Type type in types)
             {
-                IEnumerable<(InputElement, int)> elements =
-                    type.GetFields(flags)
-                            .Select(static f => (f, a: f.GetCustomAttribute<InputElementAttribute>()))
-                            .Where(static pair => pair.a != null)
-                            .Select(static pair => (new InputElement(pair.f.Name, pair.f.FieldType, false), pair.a!.Index))
-                            .Concat(
-                                type.GetProperties(flags)
-                                    .Select(static p => (p, a: p.GetCustomAttribute<InputElementAttribute>()))
-                                    .Where(static pair => pair.a != null)
-                                    .Select(static pair => (new InputElement(pair.p.Name, pair.p.PropertyType, true), pair.a!.Index))
-                            ).OrderBy(static pair => pair.Index);
+                List<(InputElement element, int index)> elements = [];
+
+                foreach (FieldInfo f in type.GetFields(flags))
                 {
-                    int expected = 0;
-                    foreach ((_, int index) in elements)
-                    {
-                        if (index != expected++)
-                            throw new InvalidOperationException($"{type.Name} invalid element indexes");
-                    }
-                    if (expected == 0)
-                        throw new InvalidOperationException($"{type.Name} has no valid input elements.");
+                    if (f.GetCustomAttribute<InputElementAttribute>() is { } a)
+                        elements.Add((new InputElement(f.Name, f.FieldType, false), a.Index));
                 }
 
-                elementMap[type] = [.. elements.Select(static pair => pair.Item1)];
+                foreach (PropertyInfo p in type.GetProperties(flags))
+                {
+                    if (p.GetCustomAttribute<InputElementAttribute>() is { } a)
+                        elements.Add((new InputElement(p.Name, p.PropertyType, true), a.Index));
+                }
+
+                elements.Sort(static (a, b) => a.index.CompareTo(b.index));
+
+                for (int i = 0; i < elements.Count; i++)
+                {
+                    if (elements[i].index != i)
+                        throw new InvalidOperationException($"{type.Name} invalid element indexes");
+                }
+
+                if (elements.Count == 0)
+                    throw new InvalidOperationException($"{type.Name} has no valid input elements.");
+
+                elementMap[type] = [.. elements.Select(static e => e.element)];
             }
 
             _initialized = true;
@@ -99,12 +99,17 @@ namespace TipeUtils.IO
                 return ReadLineUnsafe();
         }
 
+        public void Clear()
+        {
+            lock (_syncLock)
+                GetTokensUnsafe();
+        }
+
         public string[] GetTokens()
         {
             lock (_syncLock)
                 return GetTokensUnsafe();
         }
-
 
         public string? GetToken()
         {
@@ -119,19 +124,22 @@ namespace TipeUtils.IO
 
         internal string[] GetTokensUnsafe()
         {
-            return [.. Tokens];
+            List<string> tokens = [];
+            Result<string> result;
+            while (!(result = Tokens.Dequeue()).IsError)
+                tokens.Add(result.Value);
+            return [.. tokens];
         }
 
         internal string? GetTokenUnsafe()
         {
-            string? token;
-            while (!Tokens.TryDequeue(out token))
+            Result<string> result;
+            while ((result = Tokens.Dequeue()).IsError)
             {
                 if (!PopulateTokensUnsafe())
                     return null;
             }
-            return token;
-
+            return result.Value;
         }
 
         private bool PopulateTokensUnsafe()
@@ -155,9 +163,9 @@ namespace TipeUtils.IO
                 int i = 0;
                 for (; i < buffer.Length; i++)
                 {
-                    object? value = ReadUnsafe(typeof(T));
-                    if (value is null || value is not T typed) break;
-                    buffer[i] = typed;
+                    Result<T> result = ReadUnsafe(typeof(T));
+                    if (result.IsError) break;
+                    buffer[i] = result.Value!;
                 }
                 return i;
             }
@@ -175,7 +183,7 @@ namespace TipeUtils.IO
             return ReadMany(buffer.AsSpan(index, length));
         }
 
-        public object? Read(Type type)
+        public Result<object> Read(Type type)
         {
             lock (_syncLock)
             {
@@ -183,104 +191,94 @@ namespace TipeUtils.IO
             }
         }
 
-        public bool? TryRead(Type type, [NotNullWhen(true)] out object? value)
-        {
-            value = Read(type);
-            return value is not null;
-        }
-
-        public T? Read<T>()
+        public Result<T> Read<T>()
             where T : notnull, new()
         {
-            return (T?)Read(typeof(T));
+            return Read(typeof(T));
         }
 
-        public bool TryRead<T>([NotNullWhen(true)] out T? value)
-            where T : notnull, new()
+        internal Result<object> ReadUnsafe(Type type)
         {
-            value = Read<T>();
-            return value is not null;
+            try
+            {
+                return elementMap.ContainsKey(type)
+                        ? ReadComplexUnsafe(type)
+                        : ReadSimpleUnsafe(type);
+            }
+            catch (Exception ex)
+            {
+                return Result<object>.Error(ex);
+            }
+
         }
 
-        internal object? ReadUnsafe(Type type)
-        {
-            if (elementMap.ContainsKey(type))
-                return ReadComplexUnsafe(type);
-            return ReadSimpleUnsafe(type);
-        }
-
-        internal object? ReadSimpleUnsafe(Type type)
+        internal Result<object> ReadSimpleUnsafe(Type type)
         {
             string? token = GetTokenUnsafe();
             if (token == null)
-                return GetDefault(type);
+                return Result<object>.Error();
 
-            if (TypeParser.TryParse(token, type, out object? value))
-                return value;
-
-            return GetDefault(type);
+            return TypeParser.Parse(token, type);
         }
 
 
-        internal object? ReadComplexUnsafe(Type type)
+        internal Result<object> ReadComplexUnsafe(Type type)
         {
-            if (!elementMap.TryGetValue(type, out InputElement[]? elements))
-                throw new InvalidOperationException($"Input map for {type.Name} not found");
-
-            object? obj = Activator.CreateInstance(type)
-                ?? throw new InvalidOperationException
-                ($"{type.Name} cannot be deserialized because it does not have a parameterless constructor.");
-
-            InputElement? failedElement = null;
-
-            foreach (InputElement element in elements)
+            try
             {
-                Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
+                if (!elementMap.TryGetValue(type, out InputElement[]? elements))
+                    throw new InvalidOperationException($"Input map for {type.Name} not found");
 
-                object? value = ReadUnsafe(memberType);
+                object? obj = Activator.CreateInstance(type);
 
-                if (value == null)
+                if (obj == null)
+                    return Result<object>.Error($"{type.Name} cannot be deserialized because it does not have a parameterless constructor.");
+
+                InputElement? failedElement = null;
+
+                foreach (InputElement element in elements)
                 {
-                    failedElement ??= element;
-                    continue;
-                }
+                    Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
 
-                if (element.IsProperty)
-                {
-                    PropertyInfo? prop = type.GetProperty(element.Name,
-                        BindingFlags.Instance | BindingFlags.Public);
-                    if (prop?.CanWrite == true)
-                        prop.SetValue(obj, value);
-                }
-                else
-                {
-                    FieldInfo? field = type.GetField(element.Name);
+                    Result<object> result = ReadUnsafe(memberType);
 
-                    if (field == null)
+                    if (result.IsError)
                     {
                         failedElement ??= element;
                         continue;
                     }
 
-                    field.SetValue(obj, value);
+                    if (element.IsProperty)
+                    {
+                        PropertyInfo? prop = type.GetProperty(element.Name,
+                            BindingFlags.Instance | BindingFlags.Public);
+                        if (prop?.CanWrite == true)
+                            prop.SetValue(obj, result.Value);
+                    }
+                    else
+                    {
+                        FieldInfo? field = type.GetField(element.Name);
+
+                        if (field == null)
+                        {
+                            failedElement ??= element;
+                            continue;
+                        }
+
+                        field.SetValue(obj, result.Value);
+                    }
                 }
+
+                if (failedElement != null)
+                    return Result<object>.Error($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
+
+                return Result<object>.Ok(obj);
+
             }
-
-            if (failedElement != null)
-                throw new InvalidOperationException($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
-
-            return obj;
-        }
-
-        private static object? GetDefault(Type type)
-        {
-            if (!type.IsValueType)
-                return null;
-
-            if (Nullable.GetUnderlyingType(type) != null)
-                return null;
-
-            return Activator.CreateInstance(type);
+            catch (Exception ex)
+            {
+                return Result<object>.Error(ex);
+            }
         }
 
         public void Dispose()
@@ -296,7 +294,7 @@ namespace TipeUtils.IO
                 if (_disposed)
                     return;
 
-                if (disposing && !_skipDispose)
+                if (disposing && !_leaveOpen)
                 {
                     Stream?.Dispose();
                 }

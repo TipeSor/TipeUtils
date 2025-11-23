@@ -23,42 +23,26 @@ namespace TipeUtils.Reflection
             return Attribute.IsDefined(element, typeof(T));
         }
 
-        public static object? Invoke<T>(
+        public static Result<TResult> Invoke<T, TResult>(
             this T source,
             string name,
             Type[] parameterTypes,
             object?[] args)
+            where TResult : notnull
         {
             object? target = source is Type ? null : source;
             Type sourceType = source is Type t ? t : typeof(T);
 
-            return ReflectionUtils.Invoke(target, sourceType, name, parameterTypes, args);
-        }
-
-        public static bool TryInvoke<T, TResult>(
-            this T source,
-            string name,
-            Type[] parameterTypes,
-            out TResult? result,
-            object?[] args)
-        {
             try
             {
-                object? returnValue = source.Invoke(name, parameterTypes, args);
-
-                if (returnValue is TResult castResult)
-                {
-                    result = castResult;
-                    return true;
-                }
-
-                result = default;
-                return returnValue == null && default(TResult) == null;
+                object? value = ReflectionUtils.Invoke(target, sourceType, name, parameterTypes, args);
+                if (value is TResult typed)
+                    return Result<TResult>.Ok(typed);
+                return Result<TResult>.Error();
             }
-            catch
+            catch (Exception ex)
             {
-                result = default;
-                return false;
+                return Result<TResult>.Error(ex);
             }
         }
     }

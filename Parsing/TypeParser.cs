@@ -1,58 +1,64 @@
 using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace TipeUtils.Parsing
 {
     public static class TypeParser
     {
-        public static object Parse(string token, Type type)
+        public static Result<object> Parse(string token, Type type)
         {
-            Type? _type;
-            if ((_type = Nullable.GetUnderlyingType(type)) != null)
-                type = _type;
-
-            if (type == typeof(string))
-                return token;
-
-            if (string.IsNullOrWhiteSpace(token))
-                throw new ArgumentException("Token cannot be null or whitespace for non-string types");
-
-
-            if (type.IsEnum)
-                return Enum.Parse(type, token, ignoreCase: true);
-
-            if (typeof(IConvertible).IsAssignableFrom(type))
+            try
             {
-                try { return Convert.ChangeType(token, type, CultureInfo.InvariantCulture); }
-                catch (FormatException) { }
-            }
+                Type? _type;
+                if ((_type = Nullable.GetUnderlyingType(type)) != null)
+                    type = _type;
 
-            TypeConverter converter = TypeDescriptor.GetConverter(type);
-            if (converter.CanConvertFrom(typeof(string)))
+                if (type == typeof(string))
+                    return Result<object>.Ok(token);
+
+                if (string.IsNullOrWhiteSpace(token))
+                    return Result<object>.Error("Token cannot be null or whitespace for non-string types");
+
+
+                if (type.IsEnum)
+                {
+                    object value = Enum.Parse(type, token, ignoreCase: true);
+                    return Result<object>.Ok(value);
+                }
+
+                if (typeof(IConvertible).IsAssignableFrom(type))
+                {
+                    try
+                    {
+                        object value = Convert.ChangeType(token, type, CultureInfo.InvariantCulture);
+                        return Result<object>.Ok(value);
+                    }
+                    catch (FormatException) { }
+                }
+
+                TypeConverter converter = TypeDescriptor.GetConverter(type);
+                if (converter.CanConvertFrom(typeof(string)))
+                {
+                    try
+                    {
+                        object value = converter.ConvertFromString(token)!;
+                        return Result<object>.Ok(value);
+                    }
+                    catch (Exception ex) when (ex is FormatException or NotSupportedException) { }
+                }
+
+                throw new ArgumentException($"Failed to parse '{token}' to type '{type.FullName}'.");
+            }
+            catch (Exception ex)
             {
-                try { return converter.ConvertFromString(token)!; }
-                catch (Exception ex) when (ex is FormatException or NotSupportedException) { }
+                return Result<object>.Error(ex);
             }
-
-            throw new ArgumentException($"Failed to parse '{token}' to type '{type.FullName}'.");
         }
 
-        public static bool TryParse(string token, Type type, [NotNullWhen(true)] out object? value)
+        public static Result<T> Parse<T>(string token)
+            where T : notnull
         {
-            try { value = Parse(token, type); return true; }
-            catch { value = default; return false; }
-        }
-
-        public static T Parse<T>(string token)
-        {
-            return (T)Parse(token, typeof(T));
-        }
-
-        public static bool TryParse<T>(string token, [NotNullWhen(true)] out T? value)
-        {
-            try { value = Parse<T>(token)!; return true; }
-            catch { value = default; return false; }
+            return Parse(token, typeof(T));
         }
     }
 }

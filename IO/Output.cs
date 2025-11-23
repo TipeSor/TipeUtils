@@ -4,34 +4,19 @@ using System.Text;
 
 namespace TipeUtils.IO
 {
-    public sealed class Output : TextWriter
+    public sealed class Output(TextWriter writer, bool leaveOpen) : TextWriter
     {
-        public TextWriter Stream { get; }
-        private readonly bool _skipDispose;
+        public TextWriter Stream { get; } = writer;
+        private readonly bool _leaveOpen = leaveOpen;
         private bool _disposed;
 
         public Output()
-        {
-            Stream = new StreamWriter(Console.OpenStandardOutput(), leaveOpen: true)
-            {
-                AutoFlush = true,
-            };
-            _skipDispose = true;
-        }
+            : this(new StreamWriter(Console.OpenStandardOutput(), leaveOpen: true) { AutoFlush = true, }, true)
+        { }
 
         public Output(string path, bool append = false, bool autoFlush = true)
-        {
-            Stream = new StreamWriter(path, append)
-            {
-                AutoFlush = autoFlush
-            };
-        }
-
-        public Output(TextWriter writer, bool skipDispose = false)
-        {
-            Stream = writer;
-            _skipDispose = skipDispose;
-        }
+            : this(new StreamWriter(path, append) { AutoFlush = autoFlush }, false)
+        { }
 
         public override Encoding Encoding => Stream.Encoding;
 
@@ -97,7 +82,7 @@ namespace TipeUtils.IO
 
             if (disposing)
             {
-                if (!_skipDispose)
+                if (!_leaveOpen)
                     Stream.Dispose();
             }
 
