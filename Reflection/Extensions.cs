@@ -38,7 +38,7 @@ namespace TipeUtils.Reflection
                 object? value = ReflectionUtils.Invoke(target, sourceType, name, parameterTypes, args);
                 if (value is TResult typed)
                     return Result<TResult>.Ok(typed);
-                return Result<TResult>.Error();
+                return Result<TResult>.Error("Faied to invoke.");
             }
             catch (Exception ex)
             {

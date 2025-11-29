@@ -163,7 +163,7 @@ namespace TipeUtils.IO
                 int i = 0;
                 for (; i < buffer.Length; i++)
                 {
-                    Result<T> result = ReadUnsafe(typeof(T));
+                    Result<T> result = ReadUnsafe(typeof(T)).Cast<T>();
                     if (result.IsError) break;
                     buffer[i] = result.Value!;
                 }
@@ -192,9 +192,8 @@ namespace TipeUtils.IO
         }
 
         public Result<T> Read<T>()
-            where T : notnull, new()
         {
-            return Read(typeof(T));
+            return Read(typeof(T)).Cast<T>();
         }
 
         internal Result<object> ReadUnsafe(Type type)
@@ -216,11 +215,10 @@ namespace TipeUtils.IO
         {
             string? token = GetTokenUnsafe();
             if (token == null)
-                return Result<object>.Error();
+                return Result<object>.Error("Invalid token.");
 
             return TypeParser.Parse(token, type);
         }
-
 
         internal Result<object> ReadComplexUnsafe(Type type)
         {
@@ -236,16 +234,19 @@ namespace TipeUtils.IO
 
                 InputElement? failedElement = null;
 
-                foreach (InputElement element in elements)
+                for (int i = 0; i < elements.Length; i++)
                 {
+                    InputElement element = elements[i];
                     Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
 
                     Result<object> result = ReadUnsafe(memberType);
 
                     if (result.IsError)
                     {
-                        failedElement ??= element;
-                        continue;
+                        failedElement = element;
+                        for (int j = i + 1; j < elements.Length; j++)
+                            GetToken();
+                        break;
                     }
 
                     if (element.IsProperty)

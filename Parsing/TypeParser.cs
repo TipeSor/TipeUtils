@@ -19,7 +19,6 @@ namespace TipeUtils.Parsing
                 if (string.IsNullOrWhiteSpace(token))
                     return Result<object>.Error("Token cannot be null or whitespace for non-string types");
 
-
                 if (type.IsEnum)
                 {
                     object value = Enum.Parse(type, token, ignoreCase: true);
@@ -56,9 +55,8 @@ namespace TipeUtils.Parsing
         }
 
         public static Result<T> Parse<T>(string token)
-            where T : notnull
         {
-            return Parse(token, typeof(T));
+            return Parse(token, typeof(T)).Cast<T>();
         }
     }
 }
