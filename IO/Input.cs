@@ -18,7 +18,7 @@ namespace TipeUtils.IO
             set { lock (_syncLock) _canPopulate = value; }
         }
 
-        private static readonly Dictionary<Type, InputElement[]> elementMap = [];
+        private static readonly Dictionary<Type, Func<Input, Result<object>>> factories = [];
         private static bool _initialized;
 
         private LazyQueue<string> Tokens { get; set; } = new();
@@ -53,44 +53,203 @@ namespace TipeUtils.IO
 
         private static void Initialize()
         {
-            BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
-
-            IEnumerable<Type> types = AppDomain.CurrentDomain
-                .GetAssemblies()
-                .SelectMany(static asm => asm.GetTypes())
-                .Where(static t => t.HasAttribute<ComplexTypeAttribute>());
-
-            foreach (Type type in types)
-            {
-                List<(InputElement element, int index)> elements = [];
-
-                foreach (FieldInfo f in type.GetFields(flags))
-                {
-                    if (f.GetCustomAttribute<InputElementAttribute>() is { } a)
-                        elements.Add((new InputElement(f.Name, f.FieldType, false), a.Index));
-                }
-
-                foreach (PropertyInfo p in type.GetProperties(flags))
-                {
-                    if (p.GetCustomAttribute<InputElementAttribute>() is { } a)
-                        elements.Add((new InputElement(p.Name, p.PropertyType, true), a.Index));
-                }
-
-                elements.Sort(static (a, b) => a.index.CompareTo(b.index));
-
-                for (int i = 0; i < elements.Count; i++)
-                {
-                    if (elements[i].index != i)
-                        throw new InvalidOperationException($"{type.Name} invalid element indexes");
-                }
-
-                if (elements.Count == 0)
-                    throw new InvalidOperationException($"{type.Name} has no valid input elements.");
-
-                elementMap[type] = [.. elements.Select(static e => e.element)];
-            }
+            foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
+                ProcessAssembly(asm);
 
             _initialized = true;
+        }
+
+        public static void Register(Assembly? asm = null)
+        {
+            asm ??= Assembly.GetCallingAssembly();
+            lock (_initLock)
+            {
+                ProcessAssembly(asm);
+            }
+        }
+
+        private static void ProcessAssembly(Assembly assembly)
+        {
+            IEnumerable<(Type, ComplexObjectAttribute)> types = assembly.GetTypes()
+                .Select(static t => (type: t, atr: t.GetCustomAttribute<ComplexObjectAttribute>()))
+                .Where(static obj => obj.atr != null)
+                .Select(static obj => (obj.type, obj.atr!));
+
+            foreach ((Type type, ComplexObjectAttribute atr) in types)
+            {
+                switch (atr.FactoryMethodType)
+                {
+                    case FactoryMethodType.FieldInitializer:
+                        FieldFactory(type);
+                        break;
+                    case FactoryMethodType.Constructor:
+                        CtorFactory(type);
+                        break;
+                    case FactoryMethodType.CustomMethod:
+                        CustomFactory(type);
+                        break;
+                    case FactoryMethodType.AutoSelect:
+                        ProccessAuto(type);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        private static void ProccessAuto(Type type)
+        {
+            if (type.GetMethods().Any(static m => m.HasAttribute<FactoryMethodAttribute>()))
+            {
+                CustomFactory(type);
+                return;
+            }
+
+            if (type.GetConstructor(Type.EmptyTypes) != null &&
+                (type.GetFields().Any(static f => f.HasAttribute<InputParameterAttribute>()) ||
+                 type.GetProperties().Any(static p => p.HasAttribute<InputParameterAttribute>())))
+            {
+                FieldFactory(type);
+                return;
+            }
+
+            CtorFactory(type);
+
+
+        }
+
+        private static void FieldFactory(Type type)
+        {
+            BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+            List<(InputParameterInfo element, int index)> elements = [];
+
+            foreach (FieldInfo f in type.GetFields(flags))
+            {
+                if (f.GetCustomAttribute<InputParameterAttribute>() is { } a)
+                    elements.Add((new InputParameterInfo(f.Name, f.FieldType, false), a.Index));
+            }
+
+            foreach (PropertyInfo p in type.GetProperties(flags))
+            {
+                if (p.GetCustomAttribute<InputParameterAttribute>() is { } a)
+                    elements.Add((new InputParameterInfo(p.Name, p.PropertyType, true), a.Index));
+            }
+
+            elements.Sort(static (a, b) => a.index.CompareTo(b.index));
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                if (elements[i].index != i)
+                    throw new InvalidOperationException($"{type.Name} invalid element indexes");
+            }
+
+            if (elements.Count == 0)
+                throw new InvalidOperationException($"{type.Name} has no valid input elements.");
+
+            InputParameterInfo[] infos = [.. elements.Select(static e => e.element)];
+
+            factories[type] = input =>
+            {
+                object? obj = Activator.CreateInstance(type);
+
+                InputParameterInfo? failedElement = null;
+
+                for (int i = 0; i < infos.Length; i++)
+                {
+                    InputParameterInfo element = infos[i];
+                    Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
+
+                    Result<object> result = input.ReadUnsafe(memberType);
+
+                    if (result.IsError)
+                    {
+                        failedElement = element;
+                        for (int j = i + 1; j < infos.Length; j++)
+                            input.GetToken();
+                        break;
+                    }
+
+                    if (element.IsProperty)
+                    {
+                        PropertyInfo? prop = type.GetProperty(element.Name,
+                            BindingFlags.Instance | BindingFlags.Public);
+                        if (prop?.CanWrite == true)
+                            prop.SetValue(obj, result.Value);
+                    }
+                    else
+                    {
+                        FieldInfo? field = type.GetField(element.Name);
+
+                        if (field == null)
+                        {
+                            failedElement ??= element;
+                            continue;
+                        }
+
+                        field.SetValue(obj, result.Value);
+                    }
+                }
+
+                if (failedElement != null)
+                    return Result<object>.Error($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
+
+                return Result<object>.Ok(obj!);
+            };
+        }
+
+        private static void CtorFactory(Type type)
+        {
+            ConstructorInfo[] constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+
+            if (constructors.Length == 0)
+                return;
+
+            ConstructorInfo constructor =
+                constructors.FirstOrDefault(static c => Attribute.IsDefined(c, typeof(InputConstructorAttribute))) ??
+                constructors.First();
+
+            IEnumerable<Type> argTypes = constructor.GetParameters().Select(p => p.ParameterType);
+
+            factories[type] = input =>
+            {
+                List<object?> args = [];
+                foreach (Type type in argTypes)
+                {
+                    Result<object> arg = input.Read(type);
+                    args.Add(arg.Value);
+                }
+
+                object? obj = constructor.Invoke([.. args]);
+
+                return obj == null
+                    ? Result<object>.Error("TODO: Input.CtorFactory")
+                    : Result<object>.Ok(obj);
+            };
+        }
+
+        private static void CustomFactory(Type type)
+        {
+            IEnumerable<(MethodInfo info, FactoryMethodAttribute)> data = type.GetMethods()
+                           .Select(static m => (info: m, atr: m.GetCustomAttribute<FactoryMethodAttribute>()))
+                           .Where(static obj => obj.atr != null)
+                           .Select(static obj => (obj.info, obj.atr!));
+
+            foreach ((MethodInfo info, FactoryMethodAttribute atr) in data)
+            {
+                if (!info.IsStatic ||
+                    info.ReturnType != typeof(Result<object>) ||
+                    info.GetParameters().Length != 1 ||
+                    info.GetParameters()[0].ParameterType != typeof(Input))
+                    return;
+
+                factories[atr.OutputType] = input =>
+                {
+                    object? obj = info.Invoke(null, [input]);
+                    return obj is Result<object> result
+                        ? result
+                        : Result<object>.Error("TODO: Input.CustomFactory");
+                };
+            }
         }
 
         public string ReadLine()
@@ -200,7 +359,7 @@ namespace TipeUtils.IO
         {
             try
             {
-                return elementMap.ContainsKey(type)
+                return factories.ContainsKey(type)
                         ? ReadComplexUnsafe(type)
                         : ReadSimpleUnsafe(type);
             }
@@ -208,7 +367,6 @@ namespace TipeUtils.IO
             {
                 return Result<object>.Error(ex);
             }
-
         }
 
         internal Result<object> ReadSimpleUnsafe(Type type)
@@ -224,57 +382,7 @@ namespace TipeUtils.IO
         {
             try
             {
-                if (!elementMap.TryGetValue(type, out InputElement[]? elements))
-                    throw new InvalidOperationException($"Input map for {type.Name} not found");
-
-                object? obj = Activator.CreateInstance(type);
-
-                if (obj == null)
-                    return Result<object>.Error($"{type.Name} cannot be deserialized because it does not have a parameterless constructor.");
-
-                InputElement? failedElement = null;
-
-                for (int i = 0; i < elements.Length; i++)
-                {
-                    InputElement element = elements[i];
-                    Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
-
-                    Result<object> result = ReadUnsafe(memberType);
-
-                    if (result.IsError)
-                    {
-                        failedElement = element;
-                        for (int j = i + 1; j < elements.Length; j++)
-                            GetToken();
-                        break;
-                    }
-
-                    if (element.IsProperty)
-                    {
-                        PropertyInfo? prop = type.GetProperty(element.Name,
-                            BindingFlags.Instance | BindingFlags.Public);
-                        if (prop?.CanWrite == true)
-                            prop.SetValue(obj, result.Value);
-                    }
-                    else
-                    {
-                        FieldInfo? field = type.GetField(element.Name);
-
-                        if (field == null)
-                        {
-                            failedElement ??= element;
-                            continue;
-                        }
-
-                        field.SetValue(obj, result.Value);
-                    }
-                }
-
-                if (failedElement != null)
-                    return Result<object>.Error($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
-
-                return Result<object>.Ok(obj);
-
+                return factories[type](this);
             }
             catch (Exception ex)
             {
@@ -306,16 +414,35 @@ namespace TipeUtils.IO
     }
 
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-    public class ComplexTypeAttribute : Attribute
+    public class ComplexObjectAttribute(FactoryMethodType factoryType = FactoryMethodType.AutoSelect) : Attribute
     {
-
+        public FactoryMethodType FactoryMethodType { get; } = factoryType;
     }
 
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class InputElementAttribute(int index) : Attribute
+    public class InputParameterAttribute(int index) : Attribute
     {
         public int Index { get; } = index;
     }
 
-    internal record InputElement(string Name, Type MemberType, bool IsProperty);
+    internal record InputParameterInfo(string Name, Type MemberType, bool IsProperty);
+
+    [AttributeUsage(AttributeTargets.Constructor)]
+    public class InputConstructorAttribute() : Attribute
+    {
+    }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class FactoryMethodAttribute(Type outputType) : Attribute
+    {
+        public Type OutputType { get; } = outputType;
+    }
+
+    public enum FactoryMethodType
+    {
+        FieldInitializer,
+        Constructor,
+        CustomMethod,
+        AutoSelect
+    }
 }
