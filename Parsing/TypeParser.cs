@@ -5,7 +5,7 @@ namespace TipeUtils.Parsing
 {
     public static class TypeParser
     {
-        public static Result<object> Parse(string token, Type type)
+        public static Result<object, string> Parse(string token, Type type)
         {
             try
             {
@@ -14,15 +14,15 @@ namespace TipeUtils.Parsing
                     type = _type;
 
                 if (type == typeof(string))
-                    return Result<object>.Ok(token);
+                    return Result<object, string>.Ok(token);
 
                 if (string.IsNullOrWhiteSpace(token))
-                    return Result<object>.Error("Token cannot be null or whitespace for non-string types");
+                    return Result<object, string>.Err("Token cannot be null or whitespace for non-string types");
 
                 if (type.IsEnum)
                 {
                     object value = Enum.Parse(type, token, ignoreCase: true);
-                    return Result<object>.Ok(value);
+                    return Result<object, string>.Ok(value);
                 }
 
                 if (typeof(IConvertible).IsAssignableFrom(type))
@@ -30,7 +30,7 @@ namespace TipeUtils.Parsing
                     try
                     {
                         object value = Convert.ChangeType(token, type, CultureInfo.InvariantCulture);
-                        return Result<object>.Ok(value);
+                        return Result<object, string>.Ok(value);
                     }
                     catch (FormatException) { }
                 }
@@ -41,7 +41,7 @@ namespace TipeUtils.Parsing
                     try
                     {
                         object value = converter.ConvertFromString(token)!;
-                        return Result<object>.Ok(value);
+                        return Result<object, string>.Ok(value);
                     }
                     catch (Exception ex) when (ex is FormatException or NotSupportedException) { }
                 }
@@ -50,11 +50,11 @@ namespace TipeUtils.Parsing
             }
             catch (Exception ex)
             {
-                return Result<object>.Error(ex);
+                return Result<object, string>.Err(ex.Message);
             }
         }
 
-        public static Result<T> Parse<T>(string token)
+        public static Result<T, string> Parse<T>(string token)
         {
             return Parse(token, typeof(T)).Cast<T>();
         }

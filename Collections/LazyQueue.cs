@@ -1,6 +1,6 @@
 namespace TipeUtils.Collections
 {
-    public class LazyQueue<T> : IDisposable where T : notnull
+    public class LazyQueue<T> : IDisposable
     {
         private readonly Queue<IEnumerable<T>> _sources = new();
         private IEnumerator<T>? _currentEnumerator;
@@ -49,7 +49,7 @@ namespace TipeUtils.Collections
             _tinyIndex = 0;
         }
 
-        private Result<T> DequeueUnsafe()
+        private Result<T, string> DequeueUnsafe()
         {
             while (true)
             {
@@ -59,20 +59,20 @@ namespace TipeUtils.Collections
                         FlushTinyItems();
 
                     if (_sources.Count == 0)
-                        return Result<T>.Error("Queue is empty");
+                        return Result<T, string>.Err("Queue is empty");
 
                     _currentEnumerator = _sources.Dequeue().GetEnumerator();
                 }
 
                 if (_currentEnumerator.MoveNext())
-                    return Result<T>.Ok(_currentEnumerator.Current);
+                    return Result<T, string>.Ok(_currentEnumerator.Current);
 
                 _currentEnumerator.Dispose();
                 _currentEnumerator = null;
             }
         }
 
-        public Result<T> Dequeue()
+        public Result<T, string> Dequeue()
         {
             lock (_syncLock)
             {

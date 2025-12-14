@@ -23,12 +23,11 @@ namespace TipeUtils.Reflection
             return Attribute.IsDefined(element, typeof(T));
         }
 
-        public static Result<TResult> Invoke<T, TResult>(
+        public static Result<TResult, string> Invoke<T, TResult>(
             this T source,
             string name,
             Type[] parameterTypes,
             object?[] args)
-            where TResult : notnull
         {
             object? target = source is Type ? null : source;
             Type sourceType = source is Type t ? t : typeof(T);
@@ -37,12 +36,12 @@ namespace TipeUtils.Reflection
             {
                 object? value = ReflectionUtils.Invoke(target, sourceType, name, parameterTypes, args);
                 if (value is TResult typed)
-                    return Result<TResult>.Ok(typed);
-                return Result<TResult>.Error("Faied to invoke.");
+                    return Result<TResult, string>.Ok(typed);
+                return Result<TResult, string>.Err("Faied to invoke.");
             }
             catch (Exception ex)
             {
-                return Result<TResult>.Error(ex);
+                return Result<TResult, string>.Err(ex.Message);
             }
         }
     }

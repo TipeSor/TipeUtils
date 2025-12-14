@@ -18,7 +18,7 @@ namespace TipeUtils.IO
             set { lock (_syncLock) _canPopulate = value; }
         }
 
-        private static readonly Dictionary<Type, Func<Input, Result<object>>> factories = [];
+        private static readonly Dictionary<Type, Func<Input, Result<object, string>>> factories = [];
         private static bool _initialized;
 
         private LazyQueue<string> Tokens { get; set; } = new();
@@ -114,8 +114,6 @@ namespace TipeUtils.IO
             }
 
             CtorFactory(type);
-
-
         }
 
         private static void FieldFactory(Type type)
@@ -159,7 +157,7 @@ namespace TipeUtils.IO
                     InputParameterInfo element = infos[i];
                     Type memberType = Nullable.GetUnderlyingType(element.MemberType) ?? element.MemberType;
 
-                    Result<object> result = input.ReadUnsafe(memberType);
+                    Result<object, string> result = input.ReadUnsafe(memberType);
 
                     if (result.IsError)
                     {
@@ -191,9 +189,9 @@ namespace TipeUtils.IO
                 }
 
                 if (failedElement != null)
-                    return Result<object>.Error($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
+                    return Result<object, string>.Err($"Field `{failedElement.Name}` of type `{type.Name}` failed to parse.");
 
-                return Result<object>.Ok(obj!);
+                return Result<object, string>.Ok(obj!);
             };
         }
 
@@ -215,15 +213,15 @@ namespace TipeUtils.IO
                 List<object?> args = [];
                 foreach (Type type in argTypes)
                 {
-                    Result<object> arg = input.Read(type);
+                    Result<object, string> arg = input.Read(type);
                     args.Add(arg.Value);
                 }
 
                 object? obj = constructor.Invoke([.. args]);
 
                 return obj == null
-                    ? Result<object>.Error("TODO: Input.CtorFactory")
-                    : Result<object>.Ok(obj);
+                    ? Result<object, string>.Err("TODO: Input.CtorFactory")
+                    : Result<object, string>.Ok(obj);
             };
         }
 
@@ -237,7 +235,7 @@ namespace TipeUtils.IO
             foreach ((MethodInfo info, FactoryMethodAttribute atr) in data)
             {
                 if (!info.IsStatic ||
-                    info.ReturnType != typeof(Result<object>) ||
+                    info.ReturnType != typeof(Result<object, string>) ||
                     info.GetParameters().Length != 1 ||
                     info.GetParameters()[0].ParameterType != typeof(Input))
                     return;
@@ -245,9 +243,9 @@ namespace TipeUtils.IO
                 factories[atr.OutputType] = input =>
                 {
                     object? obj = info.Invoke(null, [input]);
-                    return obj is Result<object> result
+                    return obj is Result<object, string> result
                         ? result
-                        : Result<object>.Error("TODO: Input.CustomFactory");
+                        : Result<object, string>.Err("TODO: Input.CustomFactory");
                 };
             }
         }
@@ -284,15 +282,15 @@ namespace TipeUtils.IO
         internal string[] GetTokensUnsafe()
         {
             List<string> tokens = [];
-            Result<string> result;
-            while (!(result = Tokens.Dequeue()).IsError)
+            Result<string, string> result;
+            while ((result = Tokens.Dequeue()).IsOk)
                 tokens.Add(result.Value);
             return [.. tokens];
         }
 
         internal string? GetTokenUnsafe()
         {
-            Result<string> result;
+            Result<string, string> result;
             while ((result = Tokens.Dequeue()).IsError)
             {
                 if (!PopulateTokensUnsafe())
@@ -315,14 +313,13 @@ namespace TipeUtils.IO
         }
 
         public int ReadMany<T>(Span<T> buffer)
-            where T : notnull, new()
         {
             lock (_syncLock)
             {
                 int i = 0;
                 for (; i < buffer.Length; i++)
                 {
-                    Result<T> result = ReadUnsafe(typeof(T)).Cast<T>();
+                    Result<T, string> result = ReadUnsafe(typeof(T)).Cast<T>();
                     if (result.IsError) break;
                     buffer[i] = result.Value!;
                 }
@@ -331,7 +328,6 @@ namespace TipeUtils.IO
         }
 
         public int ReadMany<T>(T[] buffer, int index, int length)
-            where T : notnull, new()
         {
             if ((uint)index > (uint)buffer.Length)
                 return -1;
@@ -342,7 +338,7 @@ namespace TipeUtils.IO
             return ReadMany(buffer.AsSpan(index, length));
         }
 
-        public Result<object> Read(Type type)
+        public Result<object, string> Read(Type type)
         {
             lock (_syncLock)
             {
@@ -350,12 +346,12 @@ namespace TipeUtils.IO
             }
         }
 
-        public Result<T> Read<T>()
+        public Result<T, string> Read<T>()
         {
             return Read(typeof(T)).Cast<T>();
         }
 
-        internal Result<object> ReadUnsafe(Type type)
+        internal Result<object, string> ReadUnsafe(Type type)
         {
             try
             {
@@ -365,20 +361,20 @@ namespace TipeUtils.IO
             }
             catch (Exception ex)
             {
-                return Result<object>.Error(ex);
+                return Result<object, string>.Err(ex.Message);
             }
         }
 
-        internal Result<object> ReadSimpleUnsafe(Type type)
+        internal Result<object, string> ReadSimpleUnsafe(Type type)
         {
             string? token = GetTokenUnsafe();
             if (token == null)
-                return Result<object>.Error("Invalid token.");
+                return Result<object, string>.Err("Invalid token.");
 
             return TypeParser.Parse(token, type);
         }
 
-        internal Result<object> ReadComplexUnsafe(Type type)
+        internal Result<object, string> ReadComplexUnsafe(Type type)
         {
             try
             {
@@ -386,7 +382,7 @@ namespace TipeUtils.IO
             }
             catch (Exception ex)
             {
-                return Result<object>.Error(ex);
+                return Result<object, string>.Err(ex.Message);
             }
         }
 
