@@ -8,7 +8,7 @@
 
     <IsPackable>true</IsPackable>
 
-    <PackageId>tipe.general.tipeutils</PackageId>
+    <PackageId>tipe.generic.tipeutils</PackageId>
     <Authors>TipeSor</Authors>
 
     <RepositoryUrl>https://github.com/TipeSor/TipeUtils</RepositoryUrl>
