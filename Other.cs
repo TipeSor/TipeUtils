@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-
 namespace TipeUtils
 {
     public readonly struct Unit
@@ -80,10 +79,16 @@ namespace TipeUtils
                 => Result<Unit, TError>.Ok(Unit.Value);
         }
 
+        extension<TValue>(Result<TValue, Unit> result)
+        {
+            public static Result<TValue, Unit> Err()
+                => Result<TValue, Unit>.Err(Unit.Value);
+        }
+
         extension<TError>(Result<string, TError> result)
         {
             public static Result<string, TError> Ok(object value)
-                => Result<string, TError>.Ok(value?.ToString() ?? "null");
+                => Result<string, TError>.Ok(value?.ToString() ?? "< :p >");
         }
     }
 }
