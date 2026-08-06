@@ -1,0 +1,27 @@
+<Project>
+  <UsingTask TaskName="DetectLibraries"
+             AssemblyFile="$(MSBuildThisFileDirectory)bin/TipeUtils.Build.dll" />
+
+  <Target Name="AddTipeUtilsSources"
+          DependsOnTargets="ResolveReferences"
+          BeforeTargets="CoreCompile">
+    <DetectLibraries SourceRoot="$(MSBuildThisFileDirectory).."
+                     Packages="$(TipeUtilsPackage);$(TipeUtilsPackages)"
+                     Features="$(TipeUtilsFeature);$(TipeUtilsFeatures)"
+                     Modules="$(TipeUtilsModule);$(TipeUtilsModules)"
+                     PackageReferences="@(PackageReference)"
+                     References="@(Reference)"
+                     ReferencePaths="@(ReferencePath)"
+                     ExistingCompileItems="@(Compile)">
+      <Output TaskParameter="SourceFiles"
+              ItemName="Compile" />
+      <Output TaskParameter="DefineConstants"
+              ItemName="_TipeUtilsDefineConstants" />
+    </DetectLibraries>
+
+    <PropertyGroup>
+      <DefineConstants>$(DefineConstants);@(_TipeUtilsDefineConstants)</DefineConstants>
+      <DefineConstants Condition="'$(TipeUtilsNamespace)' == 'false'">$(DefineConstants);TipeUtilsNoNamespace</DefineConstants>
+    </PropertyGroup>
+  </Target>
+</Project>

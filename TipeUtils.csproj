@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PackageId>TipeUtils</PackageId>
+    <Version>0.1.3</Version>
+    <Authors>tipe</Authors>
+    <Description>Source-only utility package with conditional source presets.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <TipeUtilsLocalFeed Condition="'$(TipeUtilsLocalFeed)' == ''">$(HOME)/.nuget/NuGet/NuGetLocal</TipeUtilsLocalFeed>
+    <PackageOutputPath Condition="'$(PackageOutputPath)' == ''">$(TipeUtilsLocalFeed)</PackageOutputPath>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <Target Name="CreatePackageOutputPath" BeforeTargets="Pack">
+    <MakeDir Directories="$(PackageOutputPath)"
+             Condition="'$(PackageOutputPath)' != ''" />
+  </Target>
+
+  <Target Name="BuildTipeUtilsBuildTask" BeforeTargets="GenerateNuspec">
+    <MSBuild Projects="Build/TipeUtils.Build.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+
+  <ItemGroup>
+    <None Include="Build/TipeUtils.targets"
+          Pack="true"
+          PackagePath="buildTransitive/TipeUtils.targets" />
+
+    <None Include="README.md"
+          Pack="true"
+          PackagePath="/" />
+
+    <None Include="Build/bin/TipeUtils.Build.dll"
+          Pack="true"
+          PackagePath="buildTransitive/bin/TipeUtils.Build.dll" />
+
+    <None Include="Build/bin/TipeUtils.Build.deps.json"
+          Pack="true"
+          PackagePath="buildTransitive/bin/TipeUtils.Build.deps.json" />
+
+    <None Include="**/*.cs;**/*.csproj"
+          Exclude="Build/**;bin/**;obj/**;**/bin/**;**/obj/**;TipeUtils.csproj"
+          Pack="true"
+          PackagePath="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
